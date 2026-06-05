@@ -3,6 +3,7 @@
 from mathkids.engine import grade2, grade4  # noqa: F401  (import for side-effect: registration)
 from mathkids.engine.base import (
     REGISTRY,
+    SEQUENCES,
     Lesson,
     Problem,
     Skill,
@@ -12,6 +13,7 @@ from mathkids.engine.base import (
 
 __all__ = [
     "REGISTRY",
+    "SEQUENCES",
     "Lesson",
     "Problem",
     "Skill",

@@ -14,15 +14,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from mathkids import db
-from mathkids.engine import REGISTRY, Problem
+from mathkids.engine import REGISTRY, SEQUENCES, Problem
 from mathkids.mastery import MasteryState, apply_attempt, is_mastered, stars
 from mathkids.scheduler import Slot, compose_session, next_due, next_to_introduce, update_box
 
-# Ordered introduction sequence per grade (prerequisite-ish order).
-SEQUENCES: dict[int, list[str]] = {
-    2: ["2.OA.B.2", "2.NBT.A.1", "2.NBT.B.5"],
-    4: ["4.OA.A.3.a", "4.NBT.B.5", "4.NF.B.3"],
-}
 FAST_MS = 8000  # answers quicker than this earn the speed bonus
 
 BASE = Path(__file__).parent

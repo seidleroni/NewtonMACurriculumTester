@@ -63,6 +63,15 @@ class Skill:
         return problem.answer.grade(problem.answer.canonical()).correct
 
 
+# Ordered skill-introduction sequence per grade (roughly prerequisite order).
+# New skills are unlocked in this order as a kid progresses; the first two are
+# introduced when a kid is created (see seed.py).
+SEQUENCES: dict[int, list[str]] = {
+    2: ["2.OA.B.2", "2.NBT.A.1", "2.NBT.B.5"],
+    4: ["4.OA.A.3.a", "4.NBT.B.5", "4.NF.B.3"],
+}
+
+
 REGISTRY: dict[str, Skill] = {}
 
 
