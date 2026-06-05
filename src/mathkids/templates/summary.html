@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="title">Nice work, {{ kid.name }}! 🎉</h1>
+{% if session %}
+<p class="big">{{ session.num_correct }} / {{ session.answered }} correct</p>
+{% endif %}
+<ul class="skill-summary">
+  {% for p in practiced %}
+  <li>{{ p.title }} <span class="stars">{{ star_bar(p.stars) }}</span>{% if p.mastered %} 🏅{% endif %}</li>
+  {% endfor %}
+</ul>
+{% if next_skill %}<p class="newnext">🆕 New next time: <b>{{ next_skill }}</b></p>{% endif %}
+<a class="primary btn" id="next" href="/">Done</a>
+{% endblock %}

@@ -1,0 +1,106 @@
+:root {
+  --bg: #f4f1fa;
+  --card: #ffffff;
+  --ink: #2b2440;
+  --accent: #6b4ea8;
+  --accent-2: #8a6fd0;
+  --ok: #1f9d55;
+  --no: #d2604a;
+  --muted: #8a82a0;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.wrap {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 24px 18px 56px;
+}
+
+h1, h2 { color: var(--accent); }
+.title { text-align: center; }
+
+.cards { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; }
+.card {
+  background: var(--card);
+  border-radius: 18px;
+  padding: 22px 26px;
+  text-align: center;
+  box-shadow: 0 6px 20px rgba(80, 50, 140, 0.12);
+  min-width: 190px;
+}
+.card .emoji { font-size: 56px; line-height: 1; }
+.card .name { font-size: 22px; font-weight: 700; margin: 6px 0; }
+.card .meta { color: var(--muted); margin-bottom: 12px; }
+
+.topbar { display: flex; justify-content: space-between; color: var(--muted); font-weight: 600; }
+.progressbar { background: #e6e0f3; border-radius: 999px; height: 10px; margin: 8px 0 22px; overflow: hidden; }
+.progressbar span { display: block; height: 100%; background: var(--accent-2); }
+
+.skilltag { text-align: center; color: var(--accent); font-weight: 700; margin-bottom: 10px; }
+.stars { color: #f0a818; letter-spacing: 2px; }
+
+.problem { background: var(--card); border-radius: 18px; padding: 30px; text-align: center;
+  box-shadow: 0 6px 20px rgba(80, 50, 140, 0.10); }
+.prompt { font-size: 40px; font-weight: 700; margin-bottom: 20px; }
+.answer {
+  font-size: 30px; text-align: center; width: 160px; padding: 8px 10px;
+  border: 3px solid var(--accent-2); border-radius: 12px; outline: none;
+}
+.answer:focus { border-color: var(--accent); }
+
+.primary {
+  display: inline-block; background: var(--accent); color: #fff; border: none;
+  font-size: 20px; font-weight: 700; padding: 12px 26px; border-radius: 12px;
+  cursor: pointer; margin-top: 14px; text-decoration: none;
+}
+.primary:hover { background: var(--accent-2); }
+.btn { margin-top: 24px; }
+
+.link { color: var(--accent); text-decoration: none; font-weight: 600; }
+.footer { text-align: center; margin-top: 28px; }
+
+.feedback { background: var(--card); border-radius: 18px; padding: 28px; text-align: center;
+  box-shadow: 0 6px 20px rgba(80, 50, 140, 0.10); }
+.feedback .big { font-size: 34px; font-weight: 800; }
+.feedback.ok .big { color: var(--ok); }
+.feedback.no .big { color: var(--no); }
+.feedback .prompt { font-size: 28px; margin-top: 8px; }
+.feedback .you { color: var(--muted); }
+.hintline { margin-top: 10px; }
+.note { margin-top: 12px; font-weight: 700; color: var(--accent); }
+
+.lesson { background: var(--card); border-radius: 18px; padding: 28px;
+  box-shadow: 0 6px 20px rgba(80, 50, 140, 0.10); }
+.lesson .tag { display: inline-block; background: #ffe9a8; color: #7a5a00;
+  border-radius: 999px; padding: 3px 12px; font-weight: 700; font-size: 13px; }
+.lesson .body { font-size: 19px; line-height: 1.5; }
+.lesson .strategy { font-weight: 700; color: var(--accent); }
+
+.hint { margin-top: 18px; text-align: left; color: var(--muted); }
+.hint summary { cursor: pointer; }
+
+.skillmap { width: 100%; border-collapse: collapse; }
+.skillmap td { padding: 10px 6px; border-bottom: 1px solid #e8e3f2; }
+.skillmap .t { font-weight: 600; }
+.skillmap .lv { color: var(--muted); }
+.skillmap .trend { letter-spacing: 1px; color: var(--accent-2); }
+.skillmap .locked { color: var(--muted); }
+
+.kidblock { background: var(--card); border-radius: 18px; padding: 18px 22px; margin-bottom: 18px;
+  box-shadow: 0 4px 14px rgba(80, 50, 140, 0.08); }
+.domains { width: 100%; }
+.domains td { padding: 4px 6px; }
+.week { color: var(--muted); }
+.trouble { color: var(--no); }
+
+.big { font-size: 26px; font-weight: 800; text-align: center; }
+.skill-summary { list-style: none; padding: 0; font-size: 18px; }
+.skill-summary li { padding: 6px 0; }

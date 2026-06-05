@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="topbar">
+  <span class="who">{{ kid.emoji }} {{ kid.name }}</span>
+  <span class="progress">Today {{ num }}/{{ total }}</span>
+</div>
+<div class="progressbar"><span style="width: {{ (100 * num / total) | round | int }}%"></span></div>
+
+<div class="skilltag">{{ skill.title }} <span class="stars">{{ star_bar(stars) }}</span></div>
+
+<div class="problem">
+  <div class="prompt">{{ problem.prompt }}</div>
+  <form method="post" action="/kid/{{ kid.id }}/answer" id="answer-form" autocomplete="off">
+    <input type="hidden" name="idx" value="{{ idx }}">
+    <input type="hidden" name="ms" value="0" id="ms">
+    <input type="text" name="answer" inputmode="text" class="answer" autofocus>
+    <button type="submit" class="primary">Check</button>
+  </form>
+  <details class="hint">
+    <summary>ⓘ need a hint?</summary>
+    <ul>{% for h in skill.hints(problem) %}<li>{{ h }}</li>{% endfor %}</ul>
+  </details>
+</div>
+{% endblock %}

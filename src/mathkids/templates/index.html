@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="title">Math Time! 🧮</h1>
+<div class="cards">
+  {% for k in kids %}
+  <div class="card">
+    <div class="emoji">{{ k.row.emoji }}</div>
+    <div class="name">{{ k.row.name }}</div>
+    <div class="meta">⭐ {{ k.started }} skills</div>
+    <form method="post" action="/kid/{{ k.row.id }}/start">
+      <button type="submit" class="primary">Start today’s set</button>
+    </form>
+    <a class="link" href="/kid/{{ k.row.id }}">See my progress</a>
+  </div>
+  {% else %}
+  <p>No kids yet — run <code>uv run mathkids-seed</code>.</p>
+  {% endfor %}
+</div>
+<p class="footer"><a class="link" href="/parent">Parent view →</a></p>
+{% endblock %}

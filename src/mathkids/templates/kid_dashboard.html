@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="title">{{ kid.emoji }} {{ kid.name }} — Grade {{ kid.grade }}</h1>
+<p class="meta">⭐ {{ started }} skills started</p>
+
+<h2>My skill map</h2>
+<table class="skillmap">
+  {% for s in skills %}
+  <tr>
+    <td class="t">{{ s.title }}</td>
+    {% if s.introduced %}
+      <td class="stars">{{ star_bar(s.stars) }}</td>
+      <td class="lv">L{{ s.level }}/{{ s.max_level }}{% if s.mastered %} 🏅{% endif %}</td>
+      <td class="trend" title="recent answers">{% for c in s.recent %}{{ '▰' if c else '▱' }}{% endfor %}</td>
+    {% else %}
+      <td class="locked" colspan="3">🔒 not started yet</td>
+    {% endif %}
+  </tr>
+  {% endfor %}
+</table>
+
+<p class="footer"><a class="link" href="/">← back</a> · <a class="link" href="/parent">parent view</a></p>
+{% endblock %}

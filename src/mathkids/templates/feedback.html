@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+{% if correct %}
+<div class="feedback ok">
+  <div class="big">✓ Yes!</div>
+  <div class="prompt">{{ problem.prompt.replace('?', expected) }}</div>
+  {% if leveled_up %}<div class="note">⭐ Level up!</div>{% endif %}
+  {% if mastered_now %}<div class="note">🏅 You mastered this skill!</div>{% endif %}
+</div>
+{% else %}
+<div class="feedback no">
+  <div class="big">✗ Not quite.</div>
+  {% if given %}<div class="you">You wrote {{ given }}.</div>{% endif %}
+  <div class="prompt">{{ problem.prompt.replace('?', expected) }}</div>
+  {% for h in hints %}<div class="hintline">💡 {{ h }}</div>{% endfor %}
+  {% if worked %}
+  <details class="hint" open>
+    <summary>Show me how</summary>
+    <p>{{ worked }}</p>
+  </details>
+  {% endif %}
+</div>
+{% endif %}
+<a class="primary btn" id="next" href="/kid/{{ kid.id }}/play">Next →</a>
+{% endblock %}

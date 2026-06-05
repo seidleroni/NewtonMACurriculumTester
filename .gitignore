@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+
+# App data (local SQLite DB)
+*.db
+*.db-journal
+mathkids.db
+
+# OS
+.DS_Store
+Thumbs.db

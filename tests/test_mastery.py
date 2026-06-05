@@ -1,0 +1,80 @@
+"""Mastery scoring: ceiling-by-difficulty, promotion, demotion, mastery, stars."""
+
+from mathkids.mastery import (
+    MasteryState,
+    apply_attempt,
+    is_mastered,
+    level_ceiling,
+    stars,
+    update_score,
+)
+
+
+def test_score_is_capped_by_level_ceiling():
+    # Only-easy success can never approach mastery: level 1 of 3 asymptotes to 1/3.
+    score = 0.0
+    for _ in range(500):
+        score = update_score(score, level=1, max_level=3, correct=True)
+    assert score <= level_ceiling(1, 3) + 1e-9
+    assert score > 0.30  # it does climb toward the ceiling
+
+
+def test_mid_level_ceiling():
+    score = 0.0
+    for _ in range(500):
+        score = update_score(score, level=2, max_level=3, correct=True)
+    assert score <= level_ceiling(2, 3) + 1e-9
+    assert score < 0.95  # cannot be "mastered" while below the top level
+
+
+def test_wrong_answers_reduce_score_gently_but_never_below_zero():
+    score = 0.6
+    new = update_score(score, level=2, max_level=3, correct=False)
+    assert 0 < new < score
+    for _ in range(50):
+        new = update_score(new, level=2, max_level=3, correct=False)
+    assert new >= 0.0
+
+
+def test_promotion_after_a_correct_streak():
+    state = MasteryState()
+    level_reached = 1
+    for _ in range(40):
+        upd = apply_attempt(state, max_level=3, correct=True, fast=True)
+        state = upd.state
+        level_reached = max(level_reached, state.level)
+    assert level_reached == 3
+    assert is_mastered(state.score, state.level, 3)
+
+
+def test_no_mastery_below_top_level():
+    assert not is_mastered(0.99, 1, 3)
+    assert not is_mastered(0.99, 2, 3)
+    assert is_mastered(0.96, 3, 3)
+
+
+def test_demotion_after_a_bad_run():
+    state = MasteryState(score=0.6, level=2, consec_correct=0, recent="11111")
+    leveled_down = False
+    for _ in range(5):
+        upd = apply_attempt(state, max_level=3, correct=False)
+        state = upd.state
+        leveled_down = leveled_down or upd.leveled_down
+    assert leveled_down
+    assert state.level == 1
+
+
+def test_stars_mapping():
+    assert stars(0.0) == 0
+    assert stars(0.2) == 1
+    assert stars(0.39) == 1
+    assert stars(0.4) == 2
+    assert stars(1.0) == 5
+
+
+def test_stars_cannot_reach_five_at_low_level():
+    # Highest reachable score at level 1 of 3 is ~1/3 -> at most 1 star.
+    score = 0.0
+    for _ in range(500):
+        score = update_score(score, level=1, max_level=3, correct=True)
+    assert stars(score) <= 1

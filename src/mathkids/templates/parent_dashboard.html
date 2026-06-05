@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="title">Parent view</h1>
+{% for d in kids_data %}
+<section class="kidblock">
+  <h2>{{ d.kid.emoji }} {{ d.kid.name }} — Grade {{ d.kid.grade }}</h2>
+  <table class="domains">
+    {% for dom in d.domains %}
+    <tr><td>{{ dom.domain }}</td><td class="stars">{{ star_bar(dom.stars) }}</td></tr>
+    {% else %}
+    <tr><td>No skills started yet.</td></tr>
+    {% endfor %}
+  </table>
+  <p class="week">This week:
+    {{ d.week.days }} night{{ '' if d.week.days == 1 else 's' }} ·
+    {{ d.week.problems }} problems ·
+    {% if d.week.problems %}{{ (100 * d.week.correct / d.week.problems) | round | int }}% correct{% else %}—{% endif %}
+  </p>
+  {% if d.focus %}<p>Suggested focus: <b>{{ d.focus }}</b></p>{% endif %}
+  {% if d.trouble %}<p class="trouble">Trouble spot: {{ d.trouble[0] }} ({{ d.trouble[1] }}% correct)</p>{% endif %}
+</section>
+{% endfor %}
+<p class="footer"><a class="link" href="/">← back</a></p>
+{% endblock %}

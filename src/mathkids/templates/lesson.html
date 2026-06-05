@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="lesson">
+  <div class="tag">New skill!</div>
+  <h2>{{ skill.title }}</h2>
+  <p class="body">{{ lesson.body }}</p>
+  <p class="strategy">💡 {{ lesson.strategy }}</p>
+  <form method="post" action="/kid/{{ kid.id }}/seen">
+    <input type="hidden" name="skill_id" value="{{ skill.id }}">
+    <button type="submit" class="primary" id="next">Got it — let’s go!</button>
+  </form>
+</div>
+{% endblock %}
