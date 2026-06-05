@@ -49,6 +49,8 @@ h1, h2 { color: var(--accent); }
 
 .problem { background: var(--card); border-radius: 18px; padding: 30px; text-align: center;
   box-shadow: 0 6px 20px rgba(80, 50, 140, 0.10); }
+.figure { margin: 0 auto 18px; }
+.figure img { max-width: 100%; image-rendering: auto; border-radius: 8px; }
 .prompt { font-size: 40px; font-weight: 700; margin-bottom: 20px; }
 .answer {
   font-size: 30px; text-align: center; width: 160px; padding: 8px 10px;
@@ -74,6 +76,7 @@ h1, h2 { color: var(--accent); }
 .feedback.no .big { color: var(--no); }
 .feedback .prompt { font-size: 28px; margin-top: 8px; }
 .feedback .you { color: var(--muted); }
+.answer-line { font-size: 22px; margin-top: 6px; }
 .hintline { margin-top: 10px; }
 .note { margin-top: 12px; font-weight: 700; color: var(--accent); }
 

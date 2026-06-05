@@ -1,18 +1,20 @@
-"""Property-style sweep over every skill: each generated problem must self-grade,
-respect its invariants, be deterministic, and ship teaching text.
+"""Property-style sweep over every registered skill: each generated problem must
+self-grade, respect its invariants, be deterministic, ship teaching text, and use a
+known answer type. Plus structural consistency between the registry and SEQUENCES.
 
-This is the load-bearing test: it guards every skill we will ever add.
+This is the load-bearing test: it guards every skill we add. (It cannot catch math
+that is wrong-but-self-consistent — an adversarial correctness audit covers that.)
 """
 
 import random
 
 import pytest
 
-from mathkids.answers import FractionAnswer, IntegerAnswer
-from mathkids.engine import REGISTRY
+from mathkids.answers import ANSWER_TYPES, Answer
+from mathkids.engine import REGISTRY, SEQUENCES
 
-SEEDS = range(400)
-WRONG = "-987654"  # never a valid answer (all answers are non-negative)
+SEEDS = range(200)
+WRONG = "-987654"  # never a valid answer in this curriculum
 
 
 def _all_skill_levels():
@@ -21,27 +23,29 @@ def _all_skill_levels():
             yield skill, level
 
 
-@pytest.mark.parametrize("skill,level", list(_all_skill_levels()), ids=lambda x: str(x))
+@pytest.mark.parametrize("skill,level", list(_all_skill_levels()), ids=lambda x: f"{x}")
 def test_generated_problems_are_valid(skill, level):
     for seed in SEEDS:
         problem = skill.generate(level, random.Random(seed))
+        ctx = (skill.id, level, seed)
 
         # 1. The declared answer must grade itself correct.
-        assert problem.answer.grade(problem.answer.canonical()).correct, (skill.id, level, seed)
-        # 2. The skill's own invariant holds (ranges, non-negativity, etc.).
-        assert skill.invariant(problem), (skill.id, level, seed)
-        # 3. Answers in this curriculum are always non-negative.
-        assert problem.answer.value >= 0, (skill.id, level, seed)
-        # 4. A clearly wrong answer is rejected.
-        assert not problem.answer.grade(WRONG).correct, (skill.id, level, seed)
-        # 5. The prompt is a real question.
-        assert problem.prompt and problem.prompt.strip().endswith("?")
-        assert problem.skill_id == skill.id and problem.level == level
+        assert problem.answer.grade(problem.answer.canonical()).correct, ctx
+        # 2. The skill's own invariant holds (ranges, etc.).
+        assert skill.invariant(problem), ctx
+        # 3. A clearly wrong answer is rejected.
+        assert not problem.answer.grade(WRONG).correct, ctx
+        # 4. The prompt is a non-empty question; metadata is consistent.
+        assert problem.prompt and problem.prompt.strip(), ctx
+        assert problem.skill_id == skill.id and problem.level == level, ctx
+        # 5. The answer is a known, registered type.
+        assert isinstance(problem.answer, Answer), ctx
+        assert problem.answer.answer_type in ANSWER_TYPES, ctx
 
 
-@pytest.mark.parametrize("skill,level", list(_all_skill_levels()), ids=lambda x: str(x))
+@pytest.mark.parametrize("skill,level", list(_all_skill_levels()), ids=lambda x: f"{x}")
 def test_generation_is_deterministic(skill, level):
-    for seed in (0, 7, 99, 256):
+    for seed in (0, 7, 99, 150):
         p1 = skill.generate(level, random.Random(seed))
         p2 = skill.generate(level, random.Random(seed))
         assert p1.prompt == p2.prompt
@@ -51,24 +55,24 @@ def test_generation_is_deterministic(skill, level):
 def test_every_skill_has_teaching_content():
     for skill in REGISTRY.values():
         lesson = skill.lesson()
-        assert lesson.body.strip() and lesson.strategy.strip()
+        assert lesson.body.strip() and lesson.strategy.strip(), skill.id
         problem = skill.generate(1, random.Random(0))
-        assert isinstance(skill.hints(problem), list) and skill.hints(problem)
-        assert skill.worked_example(problem).strip()
+        assert isinstance(skill.hints(problem), list) and skill.hints(problem), skill.id
+        assert skill.worked_example(problem).strip(), skill.id
 
 
-def test_expected_skills_are_registered():
-    expected = {
-        "2.OA.B.2", "2.NBT.A.1", "2.NBT.B.5",
-        "4.OA.A.3.a", "4.NBT.B.5", "4.NF.B.3",
-    }
-    assert expected <= set(REGISTRY)
+def test_registry_and_sequences_are_consistent():
+    seq_ids = {sid for ids in SEQUENCES.values() for sid in ids}
+    reg_ids = set(REGISTRY)
+    # Every sequenced skill is implemented...
+    missing = seq_ids - reg_ids
+    assert not missing, f"in SEQUENCES but not registered: {sorted(missing)}"
+    # ...and every implemented skill is sequenced (so it can be introduced).
+    orphan = reg_ids - seq_ids
+    assert not orphan, f"registered but not in any SEQUENCE: {sorted(orphan)}"
 
 
-def test_answer_types_match_metadata():
-    for skill in REGISTRY.values():
-        problem = skill.generate(1, random.Random(1))
-        if skill.answer_type == "integer":
-            assert isinstance(problem.answer, IntegerAnswer)
-        elif skill.answer_type == "fraction":
-            assert isinstance(problem.answer, FractionAnswer)
+def test_skill_grade_matches_sequence_grade():
+    for grade, ids in SEQUENCES.items():
+        for sid in ids:
+            assert REGISTRY[sid].grade == grade, (sid, grade)

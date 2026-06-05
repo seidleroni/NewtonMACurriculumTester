@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from fractions import Fraction
 
 
@@ -135,3 +136,201 @@ class FractionAnswer(Answer):
         if rem == 0:
             return str(whole)
         return f"{whole} {abs(rem.numerator)}/{rem.denominator}"
+
+
+# --- comparator (<, =, >) -------------------------------------------------
+
+_COMPARATOR_WORDS = {
+    "greater": ">", "greater than": ">", "more": ">", "bigger": ">", "gt": ">",
+    "less": "<", "less than": "<", "fewer": "<", "smaller": "<", "lt": "<",
+    "equal": "=", "equals": "=", "equal to": "=", "same": "=", "eq": "=",
+}
+
+
+@dataclass(frozen=True)
+class ComparatorAnswer(Answer):
+    value: str  # one of "<", "=", ">"
+    answer_type: str = "comparator"
+
+    def grade(self, raw: str) -> GradeResult:
+        s = (raw or "").strip().lower()
+        given = s if s in ("<", "=", ">") else _COMPARATOR_WORDS.get(s, "")
+        return GradeResult(given == self.value, self.value, given)
+
+    def canonical(self) -> str:
+        return self.value
+
+
+# --- decimal (0.7 == 0.70) ------------------------------------------------
+
+@dataclass(frozen=True)
+class DecimalAnswer(Answer):
+    text: str  # e.g. "0.62" — grading is by decimal value, display by this text
+    answer_type: str = "decimal"
+
+    @property
+    def value(self) -> Decimal:
+        return Decimal(self.text)
+
+    def grade(self, raw: str) -> GradeResult:
+        try:
+            given = Decimal((raw or "").strip().replace(",", "").replace("$", ""))
+        except (InvalidOperation, ValueError):
+            return GradeResult(False, self.text, "")
+        return GradeResult(given == self.value, self.text, str(given))
+
+    def canonical(self) -> str:
+        return self.text
+
+
+# --- word / label (with synonyms) -----------------------------------------
+
+def _norm_word(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip().lower()).rstrip(".")
+
+
+@dataclass(frozen=True)
+class WordAnswer(Answer):
+    value: str
+    aliases: tuple[str, ...] = ()
+    answer_type: str = "word"
+
+    def grade(self, raw: str) -> GradeResult:
+        given = _norm_word(raw)
+        accepted = {_norm_word(self.value)} | {_norm_word(a) for a in self.aliases}
+        return GradeResult(given in accepted, self.value, given)
+
+    def canonical(self) -> str:
+        return self.value
+
+
+# --- ordered integer sequence ---------------------------------------------
+
+def _parse_ints(raw: str) -> list[int]:
+    return [int(tok) for tok in re.findall(r"-?\d+", raw or "")]
+
+
+@dataclass(frozen=True)
+class SequenceAnswer(Answer):
+    values: tuple[int, ...]
+    answer_type: str = "sequence"
+
+    def grade(self, raw: str) -> GradeResult:
+        given = _parse_ints(raw)
+        return GradeResult(given == list(self.values), self.canonical(), ", ".join(map(str, given)))
+
+    def canonical(self) -> str:
+        return ", ".join(map(str, self.values))
+
+
+# --- unordered integer set (e.g. "list all factors") ----------------------
+
+@dataclass(frozen=True)
+class SetAnswer(Answer):
+    values: frozenset[int]
+    answer_type: str = "set"
+
+    def grade(self, raw: str) -> GradeResult:
+        given = set(_parse_ints(raw))
+        return GradeResult(given == set(self.values), self.canonical(), ", ".join(map(str, sorted(given))))
+
+    def canonical(self) -> str:
+        return ", ".join(map(str, sorted(self.values)))
+
+
+# --- time (H:MM) ----------------------------------------------------------
+
+_TIME_RE = re.compile(r"(\d{1,2})\s*:\s*(\d{1,2})")
+
+
+@dataclass(frozen=True)
+class TimeAnswer(Answer):
+    hour: int
+    minute: int
+    answer_type: str = "time"
+
+    def grade(self, raw: str) -> GradeResult:
+        m = _TIME_RE.search(raw or "")
+        given_disp = ""
+        ok = False
+        if m:
+            h, mi = int(m.group(1)), int(m.group(2))
+            given_disp = f"{h}:{mi:02d}"
+            ok = (h % 12, mi) == (self.hour % 12, self.minute)
+        return GradeResult(ok, self.canonical(), given_disp)
+
+    def canonical(self) -> str:
+        return f"{self.hour}:{self.minute:02d}"
+
+
+# --- money (accepts $1.04, 104¢, 1.04, bare cents) ------------------------
+
+@dataclass(frozen=True)
+class MoneyAnswer(Answer):
+    cents: int
+    answer_type: str = "money"
+
+    def _parse(self, raw: str) -> int | None:
+        s = (raw or "").strip().lower().replace(",", "").replace(" ", "")
+        is_cents = "¢" in s or s.endswith("c") or "cent" in s
+        s = s.replace("¢", "").replace("$", "").replace("cents", "").replace("cent", "")
+        if s.endswith("c"):
+            s = s[:-1]
+        if not s:
+            return None
+        try:
+            if "." in s:
+                return int(round(float(s) * 100))
+            n = int(s)
+            return n if is_cents or n < 100 else n  # bare integer treated as cents
+        except ValueError:
+            return None
+
+    def grade(self, raw: str) -> GradeResult:
+        given = self._parse(raw)
+        return GradeResult(given == self.cents, self.canonical(), "" if given is None else self.display_of(given))
+
+    @staticmethod
+    def display_of(cents: int) -> str:
+        return f"${cents // 100}.{cents % 100:02d}"
+
+    def canonical(self) -> str:
+        return self.display_of(self.cents)
+
+
+# --- quotient with remainder (e.g. "434 R 3") -----------------------------
+
+@dataclass(frozen=True)
+class QuotientRemainderAnswer(Answer):
+    quotient: int
+    remainder: int
+    answer_type: str = "quotient_remainder"
+
+    def grade(self, raw: str) -> GradeResult:
+        ints = _parse_ints(raw)
+        ok = False
+        if len(ints) == 1 and self.remainder == 0:
+            ok = ints[0] == self.quotient
+        elif len(ints) >= 2:
+            ok = (ints[0], ints[1]) == (self.quotient, self.remainder)
+        return GradeResult(ok, self.canonical(), raw.strip() if raw else "")
+
+    def canonical(self) -> str:
+        if self.remainder == 0:
+            return str(self.quotient)
+        return f"{self.quotient} R {self.remainder}"
+
+
+# Registry of answer types -> classes, for metadata validation in tests.
+ANSWER_TYPES = {
+    "integer": IntegerAnswer,
+    "fraction": FractionAnswer,
+    "comparator": ComparatorAnswer,
+    "decimal": DecimalAnswer,
+    "word": WordAnswer,
+    "sequence": SequenceAnswer,
+    "set": SetAnswer,
+    "time": TimeAnswer,
+    "money": MoneyAnswer,
+    "quotient_remainder": QuotientRemainderAnswer,
+}

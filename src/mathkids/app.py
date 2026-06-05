@@ -13,7 +13,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from mathkids import db
+from mathkids import assets, db
 from mathkids.engine import REGISTRY, SEQUENCES, Problem
 from mathkids.mastery import MasteryState, apply_attempt, is_mastered, stars
 from mathkids.scheduler import Slot, compose_session, next_due, next_to_introduce, update_box
@@ -143,6 +143,7 @@ def play(request: Request, kid_id: int):
             )
 
         problem = regenerate(item)
+        image_uri = assets.data_uri(problem.payload["image"]) if problem.payload.get("image") else None
         return templates.TemplateResponse(
             request,
             "problem.html",
@@ -150,6 +151,7 @@ def play(request: Request, kid_id: int):
                 "kid": kid,
                 "skill": skill,
                 "problem": problem,
+                "image_uri": image_uri,
                 "idx": idx,
                 "num": idx + 1,
                 "total": len(plan),

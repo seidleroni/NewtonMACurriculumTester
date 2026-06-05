@@ -29,6 +29,13 @@ class Problem:
     answer: Answer
     payload: dict = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        # Tidy a redundant trailing "= ?" when the prompt is already a worded
+        # question (e.g. "How much longer...? = ?" -> "How much longer...?").
+        p = self.prompt.rstrip()
+        if p.endswith("= ?") and "?" in p[:-3]:
+            object.__setattr__(self, "prompt", p[:-3].rstrip())
+
 
 class Skill:
     """A single teachable/testable skill. Concrete skills subclass and set metadata."""
@@ -67,8 +74,27 @@ class Skill:
 # New skills are unlocked in this order as a kid progresses; the first two are
 # introduced when a kid is created (see seed.py).
 SEQUENCES: dict[int, list[str]] = {
-    2: ["2.OA.B.2", "2.NBT.A.1", "2.NBT.B.5"],
-    4: ["4.OA.A.3.a", "4.NBT.B.5", "4.NF.B.3"],
+    2: [
+        "2.OA.B.2", "2.NBT.A.1", "2.NBT.A.2", "2.NBT.A.3", "2.NBT.A.4",
+        "2.OA.A.1", "2.NBT.B.5", "2.NBT.B.6", "2.NBT.B.7", "2.NBT.B.8",
+        "2.OA.C.3", "2.OA.C.4", "2.MD.C.7", "2.MD.C.8", "2.MD.A.4",
+        "2.MD.B.5", "2.MD.B.6", "2.MD.D.9", "2.MD.D.10",
+        "2.G.A.1", "2.G.A.2", "2.G.A.3",
+    ],
+    3: [
+        "3.OA.A.1", "3.OA.A.2", "3.OA.A.3", "3.OA.A.4", "3.OA.B.5", "3.OA.B.6",
+        "3.OA.C.7", "3.OA.D.8", "3.OA.D.9", "3.NBT.A.1", "3.NBT.A.2", "3.NBT.A.3",
+        "3.NF.A.1", "3.NF.A.2", "3.NF.A.3", "3.MD.A.1", "3.MD.A.2", "3.MD.B.3",
+        "3.MD.B.4", "3.MD.C.5", "3.MD.C.6", "3.MD.C.7", "3.MD.D.8",
+        "3.G.A.1", "3.G.A.2",
+    ],
+    4: [
+        "4.OA.A.3.a", "4.OA.A.1", "4.OA.A.2", "4.OA.A.3", "4.OA.B.4", "4.OA.C.5",
+        "4.NBT.A.1", "4.NBT.A.2", "4.NBT.A.3", "4.NBT.B.4", "4.NBT.B.5", "4.NBT.B.6",
+        "4.NF.A.1", "4.NF.A.2", "4.NF.B.3", "4.NF.B.4", "4.NF.C.5", "4.NF.C.6",
+        "4.NF.C.7", "4.MD.A.1", "4.MD.A.2", "4.MD.A.3", "4.MD.B.4", "4.MD.C.5",
+        "4.MD.C.7", "4.G.A.3",
+    ],
 }
 
 

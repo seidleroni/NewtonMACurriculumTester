@@ -9,6 +9,7 @@
 <div class="skilltag">{{ skill.title }} <span class="stars">{{ star_bar(stars) }}</span></div>
 
 <div class="problem">
+  {% if image_uri %}<div class="figure"><img src="{{ image_uri }}" alt="figure for this problem"></div>{% endif %}
   <div class="prompt">{{ problem.prompt }}</div>
   <form method="post" action="/kid/{{ kid.id }}/answer" id="answer-form" autocomplete="off">
     <input type="hidden" name="idx" value="{{ idx }}">
