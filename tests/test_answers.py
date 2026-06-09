@@ -12,6 +12,7 @@ from mathkids.answers import (
     FractionAnswer,
     IntegerAnswer,
     MoneyAnswer,
+    MultipleChoiceAnswer,
     QuotientRemainderAnswer,
     SequenceAnswer,
     SetAnswer,
@@ -181,6 +182,23 @@ def test_quotient_remainder():
     assert b.grade("136").correct
 
 
+def test_multiple_choice():
+    a = MultipleChoiceAnswer(("red", "green", "blue"), 1)
+    assert a.grade("B").correct
+    assert a.grade("b").correct
+    assert a.grade(" (b) ").correct
+    assert a.grade("b.").correct
+    assert a.grade("green").correct
+    assert a.grade("  Green ").correct
+    assert not a.grade("a").correct
+    assert not a.grade("red").correct
+    assert not a.grade("").correct
+    assert not a.grade("z").correct
+    assert not a.grade("purple").correct
+    assert a.canonical() == "B"
+    assert a.display == "B) green"
+
+
 def test_all_answer_types_canonical_round_trip():
     samples = [
         IntegerAnswer(42),
@@ -193,6 +211,7 @@ def test_all_answer_types_canonical_round_trip():
         TimeAnswer(10, 5),
         MoneyAnswer(250),
         QuotientRemainderAnswer(7, 2),
+        MultipleChoiceAnswer(("ruler", "scale", "clock"), 0),
     ]
     for ans in samples:
         assert ans.grade(ans.canonical()).correct, ans

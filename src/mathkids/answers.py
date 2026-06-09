@@ -311,6 +311,46 @@ class MoneyAnswer(Answer):
         return self.display_of(self.cents)
 
 
+# --- multiple choice (Phase 3: pick A/B/C/D) -------------------------------
+
+_MC_LETTERS = "ABCDEFGH"
+
+
+@dataclass(frozen=True)
+class MultipleChoiceAnswer(Answer):
+    """Pick-one answer. Kids submit the option letter (radio buttons / typing
+    "b"); typing the full option text is accepted too."""
+
+    options: tuple[str, ...]
+    correct_index: int
+    answer_type: str = "multiple_choice"
+
+    def _index_of(self, raw: str) -> int | None:
+        s = _norm_word(raw).strip("()").strip()
+        if len(s) == 1:
+            i = _MC_LETTERS.lower().find(s)
+            return i if 0 <= i < len(self.options) else None
+        for i, opt in enumerate(self.options):
+            if _norm_word(opt) == s:
+                return i
+        return None
+
+    def grade(self, raw: str) -> GradeResult:
+        i = self._index_of(raw)
+        return GradeResult(
+            correct=i == self.correct_index,
+            expected_display=self.display,
+            given_display="" if i is None else f"{_MC_LETTERS[i]}) {self.options[i]}",
+        )
+
+    def canonical(self) -> str:
+        return _MC_LETTERS[self.correct_index]
+
+    @property
+    def display(self) -> str:
+        return f"{_MC_LETTERS[self.correct_index]}) {self.options[self.correct_index]}"
+
+
 # --- quotient with remainder (e.g. "434 R 3") -----------------------------
 
 @dataclass(frozen=True)
@@ -346,4 +386,5 @@ ANSWER_TYPES = {
     "time": TimeAnswer,
     "money": MoneyAnswer,
     "quotient_remainder": QuotientRemainderAnswer,
+    "multiple_choice": MultipleChoiceAnswer,
 }

@@ -212,6 +212,34 @@ def test_start_replans_stale_previous_day_session(client):
     assert stale["ended_at"] is not None
 
 
+def test_multiple_choice_problem_renders_and_grades(client):
+    """A Phase-3 MC skill shows radio options and grades the posted letter."""
+    kid_id = 1
+    conn = db.connect()
+    try:
+        today, now = db.today_ordinal(), db.now_iso()
+        db.introduce_skill(conn, kid_id, "2.MD.A.1", today, now)
+        db.save_skill_state(conn, kid_id, "2.MD.A.1", lesson_seen=1)
+        session_id = db.create_session(conn, kid_id, "[]", today, now)
+        plan = [{"skill": "2.MD.A.1", "level": 1, "seed": session_id * 1000}]
+        db.update_session_plan(conn, session_id, json.dumps(plan))
+    finally:
+        conn.close()
+
+    page = client.get(f"/kid/{kid_id}/play")
+    assert page.status_code == 200
+    assert 'type="radio"' in page.text
+    assert "Which tool is best to measure" in page.text
+
+    problem = regenerate(plan[0])
+    r = client.post(
+        f"/kid/{kid_id}/answer",
+        data={"idx": 0, "answer": problem.answer.canonical(), "ms": 1500},
+    )
+    assert r.status_code == 200
+    assert "Yes" in r.text
+
+
 def test_unknown_kid_redirects_home(client):
     r = client.get("/kid/999/play")
     assert r.status_code == 200

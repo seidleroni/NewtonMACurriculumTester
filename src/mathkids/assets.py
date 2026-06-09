@@ -178,6 +178,162 @@ def _bar_graph(categories: list, scale: int = 1) -> Image.Image:
     return img
 
 
+def _arrow_head(d: ImageDraw.ImageDraw, tip, away_from, color=INK, width=3):
+    """Small open arrow head at `tip`, pointing away from `away_from`."""
+    ang = math.atan2(tip[1] - away_from[1], tip[0] - away_from[0])
+    for da in (math.radians(150), math.radians(-150)):
+        d.line(
+            [tip, (tip[0] + 13 * math.cos(ang + da), tip[1] + 13 * math.sin(ang + da))],
+            fill=color,
+            width=width,
+        )
+
+
+def _endpoint_dot(d: ImageDraw.ImageDraw, p, color=INK):
+    d.ellipse([p[0] - 6, p[1] - 6, p[0] + 6, p[1] + 6], fill=color)
+
+
+def _right_angle_mark(d: ImageDraw.ImageDraw, vertex, p1, p2, size=14):
+    """Small square at `vertex` between the directions of p1 and p2."""
+    u1 = _unit(vertex, p1)
+    u2 = _unit(vertex, p2)
+    a = (vertex[0] + size * u1[0], vertex[1] + size * u1[1])
+    b = (a[0] + size * u2[0], a[1] + size * u2[1])
+    c = (vertex[0] + size * u2[0], vertex[1] + size * u2[1])
+    d.line([a, b, c], fill=ACCENT, width=2)
+
+
+def _unit(p_from, p_to):
+    dx, dy = p_to[0] - p_from[0], p_to[1] - p_from[1]
+    n = math.hypot(dx, dy) or 1.0
+    return dx / n, dy / n
+
+
+def _figure(figure: str, degrees: int = 0) -> Image.Image:
+    """Geometric figure cards for 4.G.A.1: point / segment / ray / line,
+    parallel / perpendicular / intersecting line pairs, and a single angle."""
+    w, h = 260, 170
+    img = Image.new("RGB", (w, h), WHITE)
+    d = ImageDraw.Draw(img)
+    a, b = (45, 120), (215, 50)  # default slanted stroke
+
+    if figure == "point":
+        _endpoint_dot(d, (w // 2, h // 2), ACCENT)
+    elif figure == "segment":
+        d.line([a, b], fill=INK, width=3)
+        _endpoint_dot(d, a)
+        _endpoint_dot(d, b)
+    elif figure == "ray":
+        d.line([a, b], fill=INK, width=3)
+        _endpoint_dot(d, a)
+        _arrow_head(d, b, a)
+    elif figure == "line":
+        d.line([a, b], fill=INK, width=3)
+        _arrow_head(d, a, b)
+        _arrow_head(d, b, a)
+    elif figure == "parallel":
+        for dy in (-30, 30):
+            p, q = (40, 95 + dy), (220, 45 + dy)
+            d.line([p, q], fill=INK, width=3)
+            _arrow_head(d, p, q)
+            _arrow_head(d, q, p)
+    elif figure in ("perpendicular", "intersecting"):
+        c = (w // 2, h // 2)
+        d.line([(c[0] - 95, c[1]), (c[0] + 95, c[1])], fill=INK, width=3)
+        _arrow_head(d, (c[0] - 95, c[1]), c)
+        _arrow_head(d, (c[0] + 95, c[1]), c)
+        ang = math.radians(90 if figure == "perpendicular" else 50)
+        dx, dy = 75 * math.cos(ang), 75 * math.sin(ang)
+        p, q = (c[0] - dx, c[1] + dy), (c[0] + dx, c[1] - dy)
+        d.line([p, q], fill=INK, width=3)
+        _arrow_head(d, p, q)
+        _arrow_head(d, q, p)
+        if figure == "perpendicular":
+            _right_angle_mark(d, c, (c[0] + 95, c[1]), q)
+    elif figure == "angle":
+        v = (110, 135)  # centered enough that obtuse rays stay on the canvas
+        r = 100
+        p1 = (v[0] + r, v[1])  # ray along 0 degrees
+        rad = math.radians(degrees)
+        p2 = (v[0] + r * math.cos(rad), v[1] - r * math.sin(rad))
+        d.line([v, p1], fill=INK, width=3)
+        d.line([v, p2], fill=INK, width=3)
+        _arrow_head(d, p1, v)
+        _arrow_head(d, p2, v)
+        _endpoint_dot(d, v)
+        if degrees == 90:
+            _right_angle_mark(d, v, p1, p2)
+        else:
+            d.arc([v[0] - 28, v[1] - 28, v[0] + 28, v[1] + 28],
+                  start=-degrees, end=0, fill=ACCENT, width=3)
+    else:
+        raise KeyError(f"unknown figure: {figure}")
+    return img
+
+
+def _polygon(points: list, ticks: list | None = None, right_marks: list | None = None) -> Image.Image:
+    """Filled polygon for 4.G.A.2, with optional equal-side tick marks (count
+    per side) and right-angle marks (vertex indices)."""
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    pad = 22
+    w = int(max(xs) - min(xs)) + pad * 2
+    h = int(max(ys) - min(ys)) + pad * 2
+    pts = [(p[0] - min(xs) + pad, p[1] - min(ys) + pad) for p in points]
+    img = Image.new("RGB", (w, h), WHITE)
+    d = ImageDraw.Draw(img)
+    d.polygon(pts, fill=(238, 232, 250), outline=INK)
+    d.line(pts + [pts[0]], fill=INK, width=3)
+    n = len(pts)
+    for i, count in enumerate(ticks or []):
+        if not count:
+            continue
+        p, q = pts[i], pts[(i + 1) % n]
+        mx, my = (p[0] + q[0]) / 2, (p[1] + q[1]) / 2
+        ux, uy = _unit(p, q)
+        nx, ny = -uy, ux  # perpendicular to the side
+        for k in range(count):
+            off = (k - (count - 1) / 2) * 7
+            cx, cy = mx + ux * off, my + uy * off
+            d.line([(cx - 7 * nx, cy - 7 * ny), (cx + 7 * nx, cy + 7 * ny)],
+                   fill=ACCENT, width=3)
+    for vi in right_marks or []:
+        v = pts[vi]
+        _right_angle_mark(d, v, pts[(vi - 1) % n], pts[(vi + 1) % n])
+    return img
+
+
+def _protractor(angle: int) -> Image.Image:
+    """A protractor with a single counterclockwise 0-180 scale (0 on the right)
+    and an angle to read: one ray along 0, the other at `angle` degrees."""
+    w, h = 330, 200
+    cx, cy, r = 165, 170, 130
+    img = Image.new("RGB", (w, h), WHITE)
+    d = ImageDraw.Draw(img)
+    # protractor body: half disc + baseline
+    d.pieslice([cx - r, cy - r, cx + r, cy + r], 180, 360, fill=(246, 243, 252), outline=INK, width=2)
+    font = _font(14)
+    for deg in range(0, 181, 10):
+        rad = math.radians(deg)
+        major = deg % 30 == 0
+        r0 = r - (16 if major else 9)
+        d.line(
+            [(cx + r0 * math.cos(rad), cy - r0 * math.sin(rad)),
+             (cx + r * math.cos(rad), cy - r * math.sin(rad))],
+            fill=INK, width=2 if major else 1,
+        )
+        if major:
+            rl = r - 30
+            _center_text(d, (cx + rl * math.cos(rad), cy - rl * math.sin(rad)), str(deg), font)
+    # the angle: baseline ray at 0, second ray at `angle`
+    rad = math.radians(angle)
+    d.line([(cx, cy), (cx + (r + 18), cy)], fill=ACCENT, width=4)
+    d.line([(cx, cy), (cx + (r + 18) * math.cos(rad), cy - (r + 18) * math.sin(rad))],
+           fill=ACCENT, width=4)
+    d.ellipse([cx - 5, cy - 5, cx + 5, cy + 5], fill=ACCENT)
+    return img
+
+
 _RENDERERS = {
     "clock": lambda s: _clock(s["hour"], s["minute"]),
     "number_line": lambda s: _number_line(s["start"], s["end"], s.get("step", 1), s.get("mark")),
@@ -186,6 +342,9 @@ _RENDERERS = {
     "grid": lambda s: _grid(s["rows"], s["cols"], s.get("shaded", 0)),
     "fraction_bar": lambda s: _fraction_bar(s["numerator"], s["denominator"]),
     "bar_graph": lambda s: _bar_graph(s["categories"], s.get("scale", 1)),
+    "figure": lambda s: _figure(s["figure"], s.get("degrees", 0)),
+    "polygon": lambda s: _polygon(s["points"], s.get("ticks"), s.get("right_marks")),
+    "protractor": lambda s: _protractor(s["angle"]),
 }
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 
 from mathkids.answers import ComparatorAnswer, IntegerAnswer, SequenceAnswer
-from mathkids.engine.base import Lesson, Problem, Skill, register
+from mathkids.engine.base import Lesson, Problem, Skill, register, shuffled_mc
 
 _PLACE_VALUE = {"hundreds": 100, "tens": 10, "ones": 1}
 
@@ -538,6 +538,157 @@ class AddSubTenHundred(Skill):
         return f"{n} {op} {step}: move the {which} digit {direction} by 1 → {ans}."
 
 
+class ExplainStrategy(Skill):
+    """2.NBT.B.9 — explain *why* an add/subtract strategy works (Phase-3
+    multiple-choice reframe of an open-reasoning standard)."""
+
+    id = "2.NBT.B.9"
+    slug = "g2-nbt-explain-strategy"
+    grade = 2
+    domain = "Number & Operations in Base Ten"
+    title = "Why strategies work"
+    max_level = 2
+    answer_type = "multiple_choice"
+    phase = 3
+
+    def generate(self, level: int, rng: random.Random) -> Problem:
+        if level <= 1:
+            variant = rng.choice(("break_apart", "compensation"))
+        else:
+            variant = rng.choice(("count_up", "same_change"))
+        return getattr(self, f"_{variant}")(rng)
+
+    def _break_apart(self, rng: random.Random) -> Problem:
+        a = rng.randint(21, 78)
+        b = rng.randint(21, 78)
+        ta, oa = a // 10 * 10, a % 10
+        tb, ob = b // 10 * 10, b % 10
+        prompt = (
+            f"To add {a} + {b}, Maya first adds the tens: {ta} + {tb} = {ta + tb}. "
+            f"Then the ones: {oa} + {ob} = {oa + ob}. Last she adds "
+            f"{ta + tb} + {oa + ob}. Why does her way work?"
+        )
+        answer = shuffled_mc(
+            rng,
+            "Splitting each number into tens and ones keeps the same total — "
+            "every ten and every one still gets added.",
+            (
+                "Adding the tens first makes the answer bigger.",
+                "It only works when the ones add up to less than 10.",
+                "Tens are worth more than ones, so the ones do not matter.",
+            ),
+        )
+        return Problem(
+            skill_id=self.id, level=1, prompt=prompt, answer=answer,
+            payload={"variant": "break_apart", "a": a, "b": b},
+        )
+
+    def _compensation(self, rng: random.Random) -> Problem:
+        a = rng.randint(25, 75)
+        b = rng.choice((18, 19, 28, 29, 38, 39, 48, 49))
+        b_round = (b // 10 + 1) * 10
+        diff = b_round - b
+        prompt = (
+            f"To add {a} + {b}, Leo adds {a} + {b_round} = {a + b_round}, "
+            f"then subtracts {diff}. Why does he subtract {diff}?"
+        )
+        answer = shuffled_mc(
+            rng,
+            f"{b_round} is {diff} more than {b}, so his sum is {diff} too big — "
+            f"taking {diff} away fixes it.",
+            (
+                f"{b_round} is {diff} less than {b}, so he should add {diff} more instead.",
+                "You always subtract after you add.",
+                f"Subtracting {diff} makes the answer end in zero.",
+            ),
+        )
+        return Problem(
+            skill_id=self.id, level=1, prompt=prompt, answer=answer,
+            payload={"variant": "compensation", "a": a, "b": b, "diff": diff},
+        )
+
+    def _count_up(self, rng: random.Random) -> Problem:
+        d = rng.randint(38, 79)
+        gap = rng.choice((4, 5, 6, 7, 8, 9, 11, 12, 13))  # never a multiple of 10
+        c = d + gap
+        prompt = (
+            f"To find {c} − {d}, Ana starts at {d} and counts up to {c}. "
+            f"She counted up {gap}. Why is {gap} the answer to {c} − {d}?"
+        )
+        answer = shuffled_mc(
+            rng,
+            f"Subtraction finds the gap between two numbers, and counting up "
+            f"from {d} to {c} measures that gap.",
+            (
+                "Counting up always gives a bigger answer than subtracting.",
+                "It only works when both numbers end in the same digit.",
+                "Adding and subtracting are the same thing.",
+            ),
+        )
+        return Problem(
+            skill_id=self.id, level=2, prompt=prompt, answer=answer,
+            payload={"variant": "count_up", "c": c, "d": d, "gap": gap},
+        )
+
+    def _same_change(self, rng: random.Random) -> Problem:
+        d = rng.choice((28, 29, 38, 39, 48, 49, 58, 59))
+        c = d + rng.randint(15, 35)
+        k = 10 - d % 10
+        prompt = (
+            f"To find {c} − {d}, Sam changes it to {c + k} − {d + k}. "
+            f"Why is the answer still the same?"
+        )
+        answer = shuffled_mc(
+            rng,
+            f"He added {k} to both numbers, and moving both up by the same "
+            f"amount keeps the gap between them the same.",
+            (
+                f"Adding {k} to both numbers makes the answer {2 * k} bigger.",
+                f"It works because {d + k} ends in zero, and zeros do not count.",
+                "You may change one number as long as it is the smaller one.",
+            ),
+        )
+        return Problem(
+            skill_id=self.id, level=2, prompt=prompt, answer=answer,
+            payload={"variant": "same_change", "c": c, "d": d, "k": k},
+        )
+
+    def invariant(self, problem: Problem) -> bool:
+        opts = problem.answer.options
+        ok = len(set(opts)) == len(opts) and 0 <= problem.answer.correct_index < len(opts)
+        p = problem.payload
+        if p["variant"] == "compensation":
+            ok = ok and (p["b"] + p["diff"]) % 10 == 0
+        if p["variant"] == "count_up":
+            ok = ok and p["c"] - p["d"] == p["gap"] and p["gap"] % 10 != 0
+        if p["variant"] == "same_change":
+            ok = ok and (p["d"] + p["k"]) % 10 == 0
+        return ok and super().invariant(problem)
+
+    def lesson(self) -> Lesson:
+        return Lesson(
+            title=self.title,
+            body=(
+                "Good adding and subtracting tricks all work for a reason. You can split "
+                "numbers into tens and ones, because every part still gets counted. You can "
+                "round a number up to make it friendly, as long as you take the extra back "
+                "off. And a subtraction is really the gap between two numbers — sliding both "
+                "numbers up or down together never changes that gap."
+            ),
+            strategy="Ask: did every part still get counted, and did the gap stay the same?",
+        )
+
+    def hints(self, problem: Problem) -> list[str]:
+        return [
+            "A strategy is fair if the total (or the gap) never changes.",
+            "Check each choice: would the answer come out the same, or different?",
+        ]
+
+    def worked_example(self, problem: Problem) -> str:
+        correct = problem.answer.options[problem.answer.correct_index]
+        return f"The right reason: {correct}"
+
+
 register(ThreeDigitPlaceValue())
 register(SkipCount())
 register(ReadWriteNumbers())
@@ -546,3 +697,4 @@ register(AddSubWithin100())
 register(AddFourTwoDigit())
 register(AddSubWithin1000())
 register(AddSubTenHundred())
+register(ExplainStrategy())

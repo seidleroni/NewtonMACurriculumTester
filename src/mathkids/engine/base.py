@@ -11,7 +11,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 
-from mathkids.answers import Answer
+from mathkids.answers import Answer, MultipleChoiceAnswer
 
 
 @dataclass(frozen=True)
@@ -35,6 +35,17 @@ class Problem:
         p = self.prompt.rstrip()
         if p.endswith("= ?") and "?" in p[:-3]:
             object.__setattr__(self, "prompt", p[:-3].rstrip())
+
+
+def shuffled_mc(
+    rng: random.Random, correct: str, distractors: tuple[str, ...]
+) -> MultipleChoiceAnswer:
+    """Build a MultipleChoiceAnswer with deterministically shuffled options."""
+    opts = [correct, *distractors]
+    if len(set(opts)) != len(opts):
+        raise ValueError(f"duplicate options: {opts}")
+    rng.shuffle(opts)
+    return MultipleChoiceAnswer(tuple(opts), opts.index(correct))
 
 
 class Skill:
@@ -77,7 +88,8 @@ SEQUENCES: dict[int, list[str]] = {
     2: [
         "2.OA.B.2", "2.NBT.A.1", "2.NBT.A.2", "2.NBT.A.3", "2.NBT.A.4",
         "2.OA.A.1", "2.NBT.B.5", "2.NBT.B.6", "2.NBT.B.7", "2.NBT.B.8",
-        "2.OA.C.3", "2.OA.C.4", "2.MD.C.7", "2.MD.C.8", "2.MD.A.4",
+        "2.NBT.B.9", "2.OA.C.3", "2.OA.C.4", "2.MD.C.7", "2.MD.C.8",
+        "2.MD.A.1", "2.MD.A.2", "2.MD.A.3", "2.MD.A.4",
         "2.MD.B.5", "2.MD.B.6", "2.MD.D.9", "2.MD.D.10",
         "2.G.A.1", "2.G.A.2", "2.G.A.3",
     ],
@@ -93,7 +105,7 @@ SEQUENCES: dict[int, list[str]] = {
         "4.NBT.A.1", "4.NBT.A.2", "4.NBT.A.3", "4.NBT.B.4", "4.NBT.B.5", "4.NBT.B.6",
         "4.NF.A.1", "4.NF.A.2", "4.NF.B.3", "4.NF.B.4", "4.NF.C.5", "4.NF.C.6",
         "4.NF.C.7", "4.MD.A.1", "4.MD.A.2", "4.MD.A.3", "4.MD.B.4", "4.MD.C.5",
-        "4.MD.C.7", "4.G.A.3",
+        "4.MD.C.6", "4.MD.C.7", "4.G.A.1", "4.G.A.2", "4.G.A.3",
     ],
 }
 

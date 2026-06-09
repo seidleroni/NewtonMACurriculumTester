@@ -15,6 +15,25 @@ SPECS = [
     {"kind": "grid", "rows": 3, "cols": 5, "shaded": 4},
     {"kind": "fraction_bar", "numerator": 3, "denominator": 8},
     {"kind": "bar_graph", "categories": [["Dogs", 5], ["Cats", 3], ["Fish", 2]], "scale": 1},
+    {"kind": "figure", "figure": "point"},
+    {"kind": "figure", "figure": "segment"},
+    {"kind": "figure", "figure": "ray"},
+    {"kind": "figure", "figure": "line"},
+    {"kind": "figure", "figure": "parallel"},
+    {"kind": "figure", "figure": "perpendicular"},
+    {"kind": "figure", "figure": "intersecting"},
+    {"kind": "figure", "figure": "angle", "degrees": 40},
+    {"kind": "figure", "figure": "angle", "degrees": 90},
+    {"kind": "figure", "figure": "angle", "degrees": 135},
+    {
+        "kind": "polygon",
+        "points": [[0, 0], [120, 0], [120, 120], [0, 120]],
+        "ticks": [1, 1, 1, 1],
+        "right_marks": [0, 1, 2, 3],
+    },
+    {"kind": "polygon", "points": [[0, 130], [200, 130], [160, 90]]},
+    {"kind": "protractor", "angle": 60},
+    {"kind": "protractor", "angle": 135},
 ]
 
 

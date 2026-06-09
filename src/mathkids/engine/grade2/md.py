@@ -11,7 +11,7 @@ from __future__ import annotations
 import random
 
 from mathkids.answers import IntegerAnswer, MoneyAnswer, TimeAnswer
-from mathkids.engine.base import Lesson, Problem, Skill, register
+from mathkids.engine.base import Lesson, Problem, Skill, register, shuffled_mc
 
 _UNITS = ("cm", "inches", "feet", "meters")
 _LINE_PLOT_LABELS = ("pencils", "books", "marbles", "stickers", "shells")
@@ -556,6 +556,274 @@ class ReadGraph(Skill):
         return f"Add every bar: {pieces} = {total} in all."
 
 
+# What to measure -> the best tool. Phrases read as the object of "measure ...".
+# Each entry: (what, correct tool). The non-length distractors make level 1 easy;
+# level 2 offers all three length tools, so the kid must pick the right one.
+_TOOL_BANK = (
+    ("the length of a crayon", "a ruler"),
+    ("the length of an eraser", "a ruler"),
+    ("the length of your shoe", "a ruler"),
+    ("the length of a book", "a ruler"),
+    ("the length of your classroom", "a meter stick"),
+    ("the length of the school hallway", "a meter stick"),
+    ("the height of a door", "a meter stick"),
+    ("the length of a long rug", "a meter stick"),
+    ("the distance around your wrist", "a measuring tape"),
+    ("the distance around a basketball", "a measuring tape"),
+    ("the distance around a tree trunk", "a measuring tape"),
+)
+_LENGTH_TOOLS = ("a ruler", "a meter stick", "a measuring tape")
+_NON_LENGTH_TOOLS = ("a kitchen scale", "a measuring cup", "a clock", "a thermometer")
+
+
+class ChooseMeasuringTool(Skill):
+    """2.MD.A.1 — choose the appropriate measuring tool (Phase-3 MC reframe;
+    actually using the tool stays a hands-on family activity)."""
+
+    id = "2.MD.A.1"
+    slug = "g2-md-choose-tool"
+    grade = 2
+    domain = "Measurement & Data"
+    title = "Pick the measuring tool"
+    max_level = 2
+    answer_type = "multiple_choice"
+    phase = 3
+
+    def generate(self, level: int, rng: random.Random) -> Problem:
+        what, correct = _TOOL_BANK[rng.randrange(len(_TOOL_BANK))]
+        if level <= 1:
+            distractors = tuple(rng.sample(_NON_LENGTH_TOOLS, 2))
+        else:
+            others = tuple(t for t in _LENGTH_TOOLS if t != correct)
+            distractors = others + (rng.choice(_NON_LENGTH_TOOLS),)
+        prompt = f"Which tool is best to measure {what}?"
+        return Problem(
+            skill_id=self.id,
+            level=level,
+            prompt=prompt,
+            answer=shuffled_mc(rng, correct, distractors),
+            payload={"what": what, "correct": correct},
+        )
+
+    def invariant(self, problem: Problem) -> bool:
+        p = problem.payload
+        ok = (p["what"], p["correct"]) in _TOOL_BANK
+        ok = ok and problem.answer.options[problem.answer.correct_index] == p["correct"]
+        return ok and super().invariant(problem)
+
+    def lesson(self) -> Lesson:
+        return Lesson(
+            title=self.title,
+            body=(
+                "Different tools fit different jobs. A ruler is short and flat — great for "
+                "small things like a crayon. A meter stick is long and straight — great for "
+                "big straight things like a doorway or a room. A measuring tape bends — "
+                "perfect for going around curved things like a ball or your wrist."
+            ),
+            strategy="Small and flat: ruler. Long and straight: meter stick. Curved: tape.",
+        )
+
+    def hints(self, problem: Problem) -> list[str]:
+        return [
+            "Is the thing small, long, or curved?",
+            "Rulers for small, meter sticks for long and straight, tape for around things.",
+        ]
+
+    def worked_example(self, problem: Problem) -> str:
+        return (
+            f"To measure {problem.payload['what']}, the best tool is "
+            f"{problem.payload['correct']}."
+        )
+
+
+_UNIT_PAIRS = (
+    # (bigger unit plural, singular, smaller unit plural, singular, factor)
+    ("feet", "foot", "inches", "inch", 12),
+    ("meters", "meter", "centimeters", "centimeter", 100),
+    ("yards", "yard", "feet", "foot", 3),
+)
+
+
+class MeasureTwiceTwoUnits(Skill):
+    """2.MD.A.2 — measure the same object in two units and relate the counts
+    (Phase-3 MC reframe of the hands-on standard)."""
+
+    id = "2.MD.A.2"
+    slug = "g2-md-two-units"
+    grade = 2
+    domain = "Measurement & Data"
+    title = "Measuring with two units"
+    max_level = 2
+    answer_type = "multiple_choice"
+    phase = 3
+
+    def generate(self, level: int, rng: random.Random) -> Problem:
+        big, big_s, small, small_s, factor = _UNIT_PAIRS[rng.randrange(len(_UNIT_PAIRS))]
+        thing = rng.choice(("a rug", "a rope", "a table", "a whiteboard", "a bench"))
+        if level <= 1:
+            prompt = (
+                f"Maya measures {thing} in {big}, then measures it again in {small}. "
+                f"Which is true about the two numbers she gets?"
+            )
+            answer = shuffled_mc(
+                rng,
+                f"The number of {small} is bigger, because each {small_s} is shorter "
+                f"so it takes more of them.",
+                (
+                    f"The number of {small} is smaller, because each {small_s} is shorter.",
+                    "The two numbers are exactly the same.",
+                    f"You cannot measure {thing} in {small}.",
+                ),
+            )
+            payload = {"variant": "which_bigger", "big": big, "small": small}
+        else:
+            n_big = rng.randint(2, 9)
+            n_small = n_big * factor
+            prompt = (
+                f"A rope is {n_big} {big} long. Measured again in {small}, the same rope "
+                f"is {n_small} {small}. Why is {n_small} a bigger number than {n_big}?"
+            )
+            answer = shuffled_mc(
+                rng,
+                f"Each {big_s} holds {factor} {small}, so the shorter unit needs a "
+                f"bigger count for the same length.",
+                (
+                    "The rope stretched between the two measurements.",
+                    f"{small.capitalize()} are longer than {big}.",
+                    "The second measurement must be a mistake.",
+                ),
+            )
+            payload = {
+                "variant": "explain_factor",
+                "big": big,
+                "big_s": big_s,
+                "small": small,
+                "factor": factor,
+                "n_big": n_big,
+                "n_small": n_small,
+            }
+        return Problem(
+            skill_id=self.id, level=level, prompt=prompt, answer=answer, payload=payload
+        )
+
+    def invariant(self, problem: Problem) -> bool:
+        p = problem.payload
+        ok = True
+        if p["variant"] == "explain_factor":
+            ok = p["n_small"] == p["n_big"] * p["factor"]
+        return ok and super().invariant(problem)
+
+    def lesson(self) -> Lesson:
+        return Lesson(
+            title=self.title,
+            body=(
+                "The same object can be measured in different units. The length doesn't "
+                "change — only the count does. Smaller units (like inches) need a bigger "
+                "count; bigger units (like feet) need a smaller count. A 3-foot table is "
+                "36 inches: same table, different units."
+            ),
+            strategy="Smaller unit, bigger number. Bigger unit, smaller number.",
+        )
+
+    def hints(self, problem: Problem) -> list[str]:
+        return [
+            "The object stays the same size — only the measuring unit changes.",
+            "Shorter units take more of them to cover the same length.",
+        ]
+
+    def worked_example(self, problem: Problem) -> str:
+        p = problem.payload
+        if p["variant"] == "explain_factor":
+            return (
+                f"1 {p['big_s']} = {p['factor']} {p['small']}, so "
+                f"{p['n_big']} × {p['factor']} = {p['n_small']} — a bigger count of a "
+                f"smaller unit, same length."
+            )
+        return (
+            f"Each {p['small']} is shorter than each {p['big']}, so measuring in "
+            f"{p['small']} gives a bigger number for the same length."
+        )
+
+
+# (what, good estimate, two way-off estimates). Estimates are everyday sizes a
+# 2nd grader can picture; the distractors are absurd for the object.
+_ESTIMATE_BANK_EASY = (
+    ("a new pencil", "7 inches", ("7 feet", "7 meters")),
+    ("the height of a classroom door", "7 feet", ("7 inches", "70 feet")),
+    ("a paper clip", "1 inch", ("1 foot", "1 meter")),
+    ("your math book", "30 centimeters", ("30 meters", "3 centimeters")),
+    ("a bed", "6 feet", ("6 inches", "60 feet")),
+)
+_ESTIMATE_BANK_HARD = (
+    ("a school bus", "35 feet", ("35 inches", "3 feet")),
+    ("a fingernail", "1 centimeter", ("1 meter", "30 centimeters")),
+    ("a soccer field", "100 meters", ("100 centimeters", "1 meter")),
+    ("a drinking straw", "15 centimeters", ("15 meters", "150 centimeters")),
+    ("the height of a 2nd grader", "4 feet", ("4 inches", "40 feet")),
+)
+
+
+class EstimateLength(Skill):
+    """2.MD.A.3 — pick the most reasonable length estimate (Phase-3 MC reframe;
+    estimation has no single typed right answer)."""
+
+    id = "2.MD.A.3"
+    slug = "g2-md-estimate-length"
+    grade = 2
+    domain = "Measurement & Data"
+    title = "Estimate lengths"
+    max_level = 2
+    answer_type = "multiple_choice"
+    phase = 3
+
+    def generate(self, level: int, rng: random.Random) -> Problem:
+        bank = _ESTIMATE_BANK_EASY if level <= 1 else _ESTIMATE_BANK_HARD
+        what, correct, distractors = bank[rng.randrange(len(bank))]
+        prompt = f"About how long is {what}?"
+        if what.startswith("the height"):
+            prompt = f"About how tall is {what.removeprefix('the height of ')}?"
+        return Problem(
+            skill_id=self.id,
+            level=level,
+            prompt=prompt,
+            answer=shuffled_mc(rng, correct, distractors),
+            payload={"what": what, "correct": correct},
+        )
+
+    def invariant(self, problem: Problem) -> bool:
+        p = problem.payload
+        bank = _ESTIMATE_BANK_EASY + _ESTIMATE_BANK_HARD
+        ok = any(w == p["what"] and c == p["correct"] for w, c, _ in bank)
+        ok = ok and problem.answer.options[problem.answer.correct_index] == p["correct"]
+        return ok and super().invariant(problem)
+
+    def lesson(self) -> Lesson:
+        return Lesson(
+            title=self.title,
+            body=(
+                "Estimating means making a smart guess using sizes you know. Your finger "
+                "is about as wide as a centimeter. A ruler is about a foot. A big step is "
+                "about a meter or a yard. Compare the object to one of those: a pencil is "
+                "several finger-widths long, so inches or centimeters make sense — not feet "
+                "or meters."
+            ),
+            strategy="Compare to a size you know: finger = cm, ruler = foot, big step = meter.",
+        )
+
+    def hints(self, problem: Problem) -> list[str]:
+        return [
+            "Picture the object next to a ruler or next to your own body.",
+            "Toss out the silly choices: would it really be that tiny or that huge?",
+        ]
+
+    def worked_example(self, problem: Problem) -> str:
+        return (
+            f"{problem.payload['what'].capitalize()} is about "
+            f"{problem.payload['correct']} — the other choices are far too big or "
+            f"far too small."
+        )
+
+
 register(HowMuchLonger())
 register(LengthWordProblems())
 register(NumberLineJumps())
@@ -563,3 +831,6 @@ register(TellTime())
 register(CountMoney())
 register(ReadLinePlot())
 register(ReadGraph())
+register(ChooseMeasuringTool())
+register(MeasureTwiceTwoUnits())
+register(EstimateLength())

@@ -646,7 +646,76 @@ def _frac_text(value: Fraction) -> str:
     return f"{whole} {rem.numerator}/{rem.denominator}"
 
 
+class ReadProtractor(Skill):
+    """4.MD.C.6 — read an angle's measure off a drawn protractor (Phase-3
+    image skill; sketching angles stays a paper-and-pencil activity)."""
+
+    id = "4.MD.C.6"
+    slug = "g4-read-protractor"
+    grade = 4
+    domain = "Measurement & Data"
+    title = "Read a protractor"
+    max_level = 2
+    answer_type = "integer"
+    phase = 3
+
+    def generate(self, level: int, rng: random.Random) -> Problem:
+        if level <= 1:
+            angle = rng.randrange(20, 161, 10)  # lands exactly on a labeled-or-major tick
+        else:
+            angle = rng.randrange(15, 166, 5)  # may land between the marked tens
+        prompt = (
+            "One ray of the angle points at 0° on the right. Read the scale where the "
+            "slanted ray crosses it: how many degrees is this angle?"
+        )
+        return Problem(
+            skill_id=self.id,
+            level=level,
+            prompt=prompt,
+            answer=IntegerAnswer(angle),
+            payload={"angle": angle, "image": {"kind": "protractor", "angle": angle}},
+        )
+
+    def invariant(self, problem: Problem) -> bool:
+        a = problem.payload["angle"]
+        ok = 0 < a < 180 and a % 5 == 0 and problem.answer.value == a
+        return ok and super().invariant(problem)
+
+    def lesson(self) -> Lesson:
+        return Lesson(
+            title=self.title,
+            body=(
+                "A protractor measures angles in degrees. Put the center dot on the angle's "
+                "corner and line up one ray with 0°. Then read the number where the other "
+                "ray crosses the scale. On our protractor 0° is on the right, and the "
+                "numbers grow counterclockwise to 180°. Small tick marks count by 10; if "
+                "the ray lands halfway between two ticks, add 5."
+            ),
+            strategy="Start at 0° on one ray, follow the scale around to the other ray.",
+        )
+
+    def hints(self, problem: Problem) -> list[str]:
+        return [
+            "One ray sits on 0°. Follow the curved scale up from 0 toward the other ray.",
+            "Big ticks are 30s, small ticks are 10s; halfway between small ticks adds 5.",
+        ]
+
+    def worked_example(self, problem: Problem) -> str:
+        a = problem.payload["angle"]
+        tens = a // 10 * 10
+        if a % 10 == 0:
+            return (
+                f"Counting up the scale from 0° by tens, the slanted ray crosses at "
+                f"{a}, so the angle measures {a}°."
+            )
+        return (
+            f"The slanted ray lands halfway between {tens} and {tens + 10}, so the "
+            f"angle measures {tens} + 5 = {a}°."
+        )
+
+
 register(UnitConversions())
+register(ReadProtractor())
 register(MeasurementWordProblems())
 register(AreaPerimeter())
 register(LinePlotFractions())

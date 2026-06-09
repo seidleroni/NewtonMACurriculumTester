@@ -52,6 +52,16 @@ h1, h2 { color: var(--accent); }
 .figure { margin: 0 auto 18px; }
 .figure img { max-width: 100%; image-rendering: auto; border-radius: 8px; }
 .prompt { font-size: 40px; font-weight: 700; margin-bottom: 20px; }
+.prompt.long { font-size: 24px; line-height: 1.45; text-align: left; }
+
+.choices { display: flex; flex-direction: column; gap: 10px; text-align: left; margin: 0 auto; max-width: 480px; }
+.choice {
+  display: block; background: #faf8ff; border: 2px solid #e0d8f2; border-radius: 12px;
+  padding: 10px 14px; font-size: 19px; cursor: pointer;
+}
+.choice:hover { border-color: var(--accent-2); }
+.choice:has(input:checked) { border-color: var(--accent); background: #f0eafd; }
+.choice .letter { display: inline-block; font-weight: 800; color: var(--accent); margin-right: 6px; }
 .answer {
   font-size: 30px; text-align: center; width: 160px; padding: 8px 10px;
   border: 3px solid var(--accent-2); border-radius: 12px; outline: none;

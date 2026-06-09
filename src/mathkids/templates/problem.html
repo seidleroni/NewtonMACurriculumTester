@@ -10,11 +10,22 @@
 
 <div class="problem">
   {% if image_uri %}<div class="figure"><img src="{{ image_uri }}" alt="figure for this problem"></div>{% endif %}
-  <div class="prompt">{{ problem.prompt }}</div>
+  <div class="prompt{% if problem.prompt|length > 80 %} long{% endif %}">{{ problem.prompt }}</div>
   <form method="post" action="/kid/{{ kid.id }}/answer" id="answer-form" autocomplete="off">
     <input type="hidden" name="idx" value="{{ idx }}">
     <input type="hidden" name="ms" value="0" id="ms">
+    {% if problem.answer.answer_type == "multiple_choice" %}
+    <div class="choices">
+      {% for opt in problem.answer.options %}
+      <label class="choice">
+        <input type="radio" name="answer" value="{{ "ABCDEFGH"[loop.index0] }}" required>
+        <span class="letter">{{ "ABCDEFGH"[loop.index0] }}</span> {{ opt }}
+      </label>
+      {% endfor %}
+    </div>
+    {% else %}
     <input type="text" name="answer" inputmode="text" class="answer" autofocus>
+    {% endif %}
     <button type="submit" class="primary">Check</button>
   </form>
   <details class="hint">
