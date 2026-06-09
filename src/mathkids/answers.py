@@ -263,32 +263,45 @@ class TimeAnswer(Answer):
         return f"{self.hour}:{self.minute:02d}"
 
 
-# --- money (accepts $1.04, 104¢, 1.04, bare cents) ------------------------
+# --- money (accepts $1.04, 104¢, 1.04, bare cents or bare dollars) ---------
 
 @dataclass(frozen=True)
 class MoneyAnswer(Answer):
     cents: int
     answer_type: str = "money"
 
-    def _parse(self, raw: str) -> int | None:
+    def _parse(self, raw: str) -> tuple[int, bool] | None:
+        """Return (cents, ambiguous) — ambiguous means a bare integer with no
+        $/¢/decimal marker, which could mean cents or whole dollars."""
         s = (raw or "").strip().lower().replace(",", "").replace(" ", "")
         is_cents = "¢" in s or s.endswith("c") or "cent" in s
-        s = s.replace("¢", "").replace("$", "").replace("cents", "").replace("cent", "")
+        is_dollars = "$" in s or "dollar" in s
+        s = s.replace("¢", "").replace("$", "")
+        s = s.replace("cents", "").replace("cent", "").replace("dollars", "").replace("dollar", "")
         if s.endswith("c"):
             s = s[:-1]
         if not s:
             return None
         try:
             if "." in s:
-                return int(round(float(s) * 100))
+                return int(round(float(s) * 100)), False
             n = int(s)
-            return n if is_cents or n < 100 else n  # bare integer treated as cents
+            if is_cents:
+                return n, False
+            if is_dollars:
+                return n * 100, False
+            return n, True  # bare integer: cents, but dollars also accepted
         except ValueError:
             return None
 
     def grade(self, raw: str) -> GradeResult:
-        given = self._parse(raw)
-        return GradeResult(given == self.cents, self.canonical(), "" if given is None else self.display_of(given))
+        parsed = self._parse(raw)
+        if parsed is None:
+            return GradeResult(False, self.canonical(), "")
+        given, ambiguous = parsed
+        if ambiguous and given * 100 == self.cents:
+            given = given * 100  # "3" for $3.00 counts as dollars
+        return GradeResult(given == self.cents, self.canonical(), self.display_of(given))
 
     @staticmethod
     def display_of(cents: int) -> str:

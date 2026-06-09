@@ -17,6 +17,10 @@ from mathkids.engine.base import Lesson, Problem, Skill, register
 # Well-known shapes -> number of lines of symmetry. Values are standard facts:
 # a square folds 4 ways, a (non-square) rectangle 2, an equilateral triangle 3,
 # a regular pentagon 5, a regular hexagon 6, and an isosceles triangle just 1.
+def _article(noun: str) -> str:
+    return "an" if noun[0] in "aeiou" else "a"
+
+
 _SYMMETRY_LINES = {
     "square": 4,
     "rectangle": 2,
@@ -46,7 +50,7 @@ class LinesOfSymmetryCount(Skill):
             shapes = tuple(_SYMMETRY_LINES)
         shape = rng.choice(shapes)
         lines = _SYMMETRY_LINES[shape]
-        prompt = f"How many lines of symmetry does a {shape} have? = ?"
+        prompt = f"How many lines of symmetry does {_article(shape)} {shape} have? = ?"
         return Problem(
             skill_id=self.id,
             level=level,
@@ -90,9 +94,10 @@ class LinesOfSymmetryCount(Skill):
     def worked_example(self, problem: Problem) -> str:
         shape = problem.payload["shape"]
         lines = problem.payload["lines"]
-        unit = "fold line that makes" if lines == 1 else "different folds that each make"
+        an = _article(shape)
         return (
-            f"Picture a {shape} and find every {unit} the two halves match. A {shape} has "
+            f"Picture {an} {shape} and find every fold that makes the two halves match. "
+            f"{an.capitalize()} {shape} has "
             f"{lines} such {'line' if lines == 1 else 'lines'} of symmetry. Answer = {lines}."
         )
 

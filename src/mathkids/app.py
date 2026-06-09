@@ -100,6 +100,13 @@ def start(kid_id: int):
         if kid is None:
             return RedirectResponse("/", status_code=303)
         today, now = db.today_ordinal(), db.now_iso()
+        active = db.get_active_session(conn, kid_id)
+        if active is not None:
+            # Resume today's unfinished set rather than discarding its progress;
+            # a leftover set from a previous day is closed and replanned fresh.
+            if active["day"] == today and active["answered"] < len(json.loads(active["plan"])):
+                return RedirectResponse(f"/kid/{kid_id}/play", status_code=303)
+            db.end_session(conn, active["id"], now)
         sequence = grade_sequence(kid["grade"])
         ensure_introductions(conn, kid_id, sequence, today, now)
         states = db.get_skill_states(conn, kid_id)

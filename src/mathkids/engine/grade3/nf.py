@@ -49,7 +49,8 @@ class UnderstandFractions(Skill):
         word = _DENOM_WORDS[b]
         prompt = (
             f"A whole is split into {b} equal parts ({word}). "
-            f"{a} of those parts is shaded. What fraction is shaded? = ?"
+            f"{a} of those parts {'is' if a == 1 else 'are'} shaded. "
+            "What fraction is shaded? = ?"
         )
         return Problem(
             skill_id=self.id,

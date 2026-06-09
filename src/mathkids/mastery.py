@@ -57,7 +57,12 @@ def update_score(score: float, level: int, max_level: int, correct: bool, fast: 
 
 
 def stars(score: float) -> int:
-    """Whole stars earned, 0..5 (floor). Reaching 5 requires top-level success."""
+    """Whole stars earned, 0..5 (floor). The 5th star unlocks at the mastery
+    threshold — the EMA never quite reaches 1.0, so flooring alone would make
+    it unattainable. Score >= MASTER_SCORE still requires top-level success
+    (the ceiling-by-difficulty caps lower levels well below it)."""
+    if score >= MASTER_SCORE:
+        return 5
     return max(0, min(5, int(score * 5 + 1e-9)))
 
 

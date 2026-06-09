@@ -69,7 +69,18 @@ def test_stars_mapping():
     assert stars(0.2) == 1
     assert stars(0.39) == 1
     assert stars(0.4) == 2
+    assert stars(0.94) == 4
     assert stars(1.0) == 5
+
+
+def test_fifth_star_unlocks_at_mastery():
+    # The score EMA asymptotes below 1.0, so the 5th star must unlock at the
+    # mastery threshold or it could never be earned.
+    state = MasteryState()
+    for _ in range(40):
+        state = apply_attempt(state, max_level=3, correct=True, fast=True).state
+    assert is_mastered(state.score, state.level, 3)
+    assert stars(state.score) == 5
 
 
 def test_stars_cannot_reach_five_at_low_level():

@@ -149,6 +149,26 @@ def test_money():
     assert a.canonical() == "$1.04"
 
 
+def test_money_whole_dollars():
+    # A kid answering $3.00 naturally types "3", "$3", or "3 dollars".
+    a = MoneyAnswer(300)
+    assert a.grade("3").correct
+    assert a.grade("$3").correct
+    assert a.grade("3 dollars").correct
+    assert a.grade("300").correct
+    assert a.grade("300 cents").correct
+    assert a.grade("3.00").correct
+    assert not a.grade("30").correct
+    # Explicit cent markers are never reinterpreted as dollars.
+    assert not a.grade("3¢").correct
+    assert not a.grade("3 cents").correct
+    # Bare integers still mean cents when that matches.
+    b = MoneyAnswer(85)
+    assert b.grade("85").correct
+    assert b.grade("85¢").correct
+    assert not b.grade("$85").correct
+
+
 def test_quotient_remainder():
     a = QuotientRemainderAnswer(434, 3)
     assert a.grade("434 R 3").correct

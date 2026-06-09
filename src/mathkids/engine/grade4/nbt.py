@@ -76,7 +76,8 @@ class DigitTenTimes(Skill):
             value = digit * right_place
             prompt = (
                 f"The {digit} in the {_PLACE_NAMES[place]} place is 10 times "
-                f"a {digit} in the {_PLACE_NAMES[right_place]} place. "
+                f"{'an' if digit == 8 else 'a'} {digit} "
+                f"in the {_PLACE_NAMES[right_place]} place. "
                 f"What is the value of that {digit} in the "
                 f"{_PLACE_NAMES[right_place]} place?"
             )

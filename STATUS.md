@@ -1,8 +1,8 @@
 # STATUS — what's built, what isn't, and the pathways forward
 
-Living status doc. Pairs with [`DESIGN.md`](DESIGN.md) (the full spec). Last updated 2026-06-05.
+Living status doc. Pairs with [`DESIGN.md`](DESIGN.md) (the full spec). Last updated 2026-06-09.
 
-Quick health: `uv run pytest` → **484 passing**, `uv run ruff check` clean. **73 math skills**
+Quick health: `uv run pytest` → **488 passing**, `uv run ruff check` clean. **73 math skills**
 across Grades 2–4 (22 / 25 / 26). Every skill is structurally verified by a property test and
 its math was independently re-solved by an adversarial audit (0 wrong answers found).
 
@@ -88,8 +88,6 @@ we assess the typed/answer half instead:
 - **Other grades**: only Grades 2–4 math. Grade 1 / Grade 5+ are not authored (engine supports them).
 - **Subjects beyond math** (literacy, etc.): not started — Phase 4.
 - **Web deployment**: app is local-only (`uv run mathkids`), by design for now. No auth/hosting.
-- **Cosmetic polish**: a few generated prompts have minor grammar slips (e.g. "5 of those parts
-  *is* shaded", "*a* isosceles triangle"). Harmless; not yet swept.
 
 ---
 

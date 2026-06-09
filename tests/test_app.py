@@ -107,6 +107,71 @@ def test_full_daily_loop(client):
     assert any(row["attempts"] > 0 for row in states.values())
 
 
+def test_start_resumes_same_day_session(client):
+    kid_id = 1
+    client.post(f"/kid/{kid_id}/start")
+
+    # Answer one problem (skipping past any lesson screens first).
+    for _ in range(10):
+        idx, it = _current_item(kid_id)
+        skill_id = it["skill"]
+        if _lesson_seen(kid_id, skill_id) == 0:
+            client.post(f"/kid/{kid_id}/seen", data={"skill_id": skill_id})
+            continue
+        problem = regenerate(it)
+        client.post(
+            f"/kid/{kid_id}/answer",
+            data={"idx": idx, "answer": problem.answer.canonical(), "ms": 1500},
+        )
+        break
+
+    conn = db.connect()
+    try:
+        before = db.get_active_session(conn, kid_id)
+    finally:
+        conn.close()
+    assert before["answered"] == 1
+
+    # Clicking "Start" again must resume the same session, not discard progress.
+    r = client.post(f"/kid/{kid_id}/start")
+    assert r.status_code == 200
+    conn = db.connect()
+    try:
+        after = db.get_active_session(conn, kid_id)
+    finally:
+        conn.close()
+    assert after["id"] == before["id"]
+    assert after["answered"] == 1
+
+
+def test_start_replans_stale_previous_day_session(client):
+    kid_id = 1
+    client.post(f"/kid/{kid_id}/start")
+    conn = db.connect()
+    try:
+        first = db.get_active_session(conn, kid_id)
+        # Simulate the unfinished session being from yesterday.
+        conn.execute(
+            "UPDATE session SET day = day - 1 WHERE id = ?", (first["id"],)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    r = client.post(f"/kid/{kid_id}/start")
+    assert r.status_code == 200
+    conn = db.connect()
+    try:
+        active = db.get_active_session(conn, kid_id)
+        stale = conn.execute(
+            "SELECT * FROM session WHERE id = ?", (first["id"],)
+        ).fetchone()
+    finally:
+        conn.close()
+    assert active["id"] != first["id"]
+    assert stale["ended_at"] is not None
+
+
 def test_unknown_kid_redirects_home(client):
     r = client.get("/kid/999/play")
     assert r.status_code == 200
