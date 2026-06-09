@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import random
 
-from mathkids.answers import IntegerAnswer, SequenceAnswer, SetAnswer, WordAnswer
-from mathkids.engine.base import Lesson, Problem, Skill, register
+from mathkids.answers import IntegerAnswer, WordAnswer
+from mathkids.engine.base import Lesson, Problem, Skill, register, shuffled_mc
 
 _DOMAIN = "Operations & Algebraic Thinking"
 
@@ -114,13 +114,21 @@ class MultiplicativeComparison(Skill):
         n = rng.randint(2, hi)
         b = rng.randint(2, hi)
         product = n * b
+        who, other = rng.sample(_KID_NAMES, 2)
+        items = rng.choice(_ITEM_NOUNS)
         find_product = level <= 1 or rng.random() < 0.5
-        if find_product:  # p is n times as many as b -> find p
-            prompt = f"A number is {n} times as many as {b}. What is the number?"
+        if find_product:  # other has b, who has n times as many -> find who's count
+            prompt = (
+                f"{other} has {b} {items}. {who} has {n} times as many {items} "
+                f"as {other}. How many {items} does {who} have?"
+            )
             answer = product
             mode = "product"
-        else:  # p is ? times as many as b -> find the missing factor n
-            prompt = f"{product} is how many times as many as {b}?"
+        else:  # who has n*b, other has b -> find how many times as many
+            prompt = (
+                f"{who} has {product} {items} and {other} has {b} {items}. "
+                f"How many times as many {items} does {who} have as {other}?"
+            )
             answer = n
             mode = "factor"
         return Problem(
@@ -128,7 +136,10 @@ class MultiplicativeComparison(Skill):
             level=level,
             prompt=prompt,
             answer=IntegerAnswer(answer),
-            payload={"n": n, "b": b, "product": product, "mode": mode},
+            payload={
+                "n": n, "b": b, "product": product, "mode": mode,
+                "who": who, "other": other, "items": items,
+            },
         )
 
     def invariant(self, problem: Problem) -> bool:
@@ -148,6 +159,7 @@ class MultiplicativeComparison(Skill):
 
     def hints(self, problem: Problem) -> list[str]:
         n, b = problem.payload["n"], problem.payload["b"]
+        who = problem.payload["who"]
         if problem.payload["mode"] == "product":
             return [
                 f"'{n} times as many as {b}' means {n} groups of {b}.",
@@ -155,14 +167,15 @@ class MultiplicativeComparison(Skill):
             ]
         return [
             f"Ask: {b} times what equals {problem.payload['product']}?",
-            f"Divide the big number by {b}: {problem.payload['product']} ÷ {b}.",
+            f"Divide {who}'s amount by {b}: {problem.payload['product']} ÷ {b}.",
         ]
 
     def worked_example(self, problem: Problem) -> str:
         n, b, product = problem.payload["n"], problem.payload["b"], problem.payload["product"]
+        who = problem.payload["who"]
         if problem.payload["mode"] == "product":
-            return f"{n} times as many as {b} is {n} × {b} = {product}."
-        return f"{product} ÷ {b} = {n}, so {product} is {n} times as many as {b}."
+            return f"{n} times as many as {b} is {n} × {b} = {product}, so {who} has {product}."
+        return f"{product} ÷ {b} = {n}, so {who} has {n} times as many."
 
 
 class ComparisonWordProblems(Skill):
@@ -347,22 +360,25 @@ class FactorsMultiplesPrimes(Skill):
     domain = _DOMAIN
     title = "Factors, multiples, prime/composite"
     max_level = 3
-    answer_type = "set"
+    answer_type = "multiple_choice"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
         hi = 24 if level <= 1 else (40 if level == 2 else 60)
         do_factors = rng.random() < 0.5
-        if do_factors:  # list ALL factors of n
-            n = rng.randint(4, hi)
-            facs = _factors(n)
-            prompt = f"List all the factors of {n}."
+        if do_factors:  # pick the one true factor of n among four choices
+            f = rng.randint(2, 9)
+            m = rng.randint(2, max(2, hi // f))
+            n = f * m
+            non_divisors = [d for d in range(2, 13) if n % d != 0]
+            distractors = tuple(str(d) for d in rng.sample(non_divisors, 3))
+            prompt = f"Which of these is a factor of {n}?"
             return Problem(
                 skill_id=self.id,
                 level=level,
                 prompt=prompt,
-                answer=SetAnswer(facs),
-                payload={"variant": "factors", "n": n},
+                answer=shuffled_mc(rng, str(f), distractors),
+                payload={"variant": "factor_mc", "n": n, "f": f},
             )
         # prime vs composite (n >= 2 so the question is well-posed)
         n = rng.randint(2, hi)
@@ -378,8 +394,16 @@ class FactorsMultiplesPrimes(Skill):
 
     def invariant(self, problem: Problem) -> bool:
         p = problem.payload
-        if p["variant"] == "factors":
-            return problem.answer.values == _factors(p["n"]) and super().invariant(problem)
+        if p["variant"] == "factor_mc":
+            n = p["n"]
+            opts = problem.answer.options
+            correct = int(opts[problem.answer.correct_index])
+            others_wrong = all(
+                n % int(o) != 0
+                for i, o in enumerate(opts)
+                if i != problem.answer.correct_index
+            )
+            return n % correct == 0 and others_wrong and super().invariant(problem)
         n = p["n"]
         expect = "prime" if _is_prime(n) else "composite"
         return p["label"] == expect and super().invariant(problem)
@@ -398,10 +422,10 @@ class FactorsMultiplesPrimes(Skill):
 
     def hints(self, problem: Problem) -> list[str]:
         n = problem.payload["n"]
-        if problem.payload["variant"] == "factors":
+        if problem.payload["variant"] == "factor_mc":
             return [
-                f"Try dividing {n} by 1, 2, 3, … and keep the ones with no remainder.",
-                "Each factor has a partner: if 2 works, so does the number it pairs with.",
+                f"A factor divides {n} evenly, with no remainder.",
+                f"Try dividing {n} by each choice — only one leaves no remainder.",
             ]
         return [
             f"Can any number besides 1 and {n} divide {n} evenly?",
@@ -410,9 +434,9 @@ class FactorsMultiplesPrimes(Skill):
 
     def worked_example(self, problem: Problem) -> str:
         n = problem.payload["n"]
-        if problem.payload["variant"] == "factors":
-            facs = ", ".join(str(f) for f in sorted(_factors(n)))
-            return f"The numbers that divide {n} evenly are {facs}."
+        if problem.payload["variant"] == "factor_mc":
+            f = problem.payload["f"]
+            return f"{n} ÷ {f} = {n // f} with no remainder, so {f} is a factor of {n}."
         label = problem.payload["label"]
         if label == "prime":
             return f"{n} has only the factors 1 and {n}, so {n} is prime."
@@ -428,7 +452,7 @@ class GeneratePatterns(Skill):
     domain = _DOMAIN
     title = "Generate & analyze patterns"
     max_level = 3
-    answer_type = "sequence"
+    answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
@@ -439,7 +463,7 @@ class GeneratePatterns(Skill):
             terms = [start]
             for _ in range(3):
                 terms.append(terms[-1] * k)
-            nxt = tuple(terms[-1] * (k ** i) for i in range(1, 5))
+            nxt = terms[-1] * k
             rule = f"multiply by {k}"
             payload = {"op": "multiply", "k": k, "start": start}
         else:  # add k each time
@@ -451,22 +475,22 @@ class GeneratePatterns(Skill):
                 k = rng.choice((8, 9, 11, 12))
             start = rng.randint(1, 9)
             terms = [start + k * i for i in range(4)]
-            nxt = tuple(terms[-1] + k * i for i in range(1, 5))
+            nxt = terms[-1] + k
             rule = f"add {k}"
             payload = {"op": "add", "k": k, "start": start}
         shown = ", ".join(str(v) for v in terms)
-        prompt = f"The rule is '{rule}'. The pattern starts {shown}, … What are the next 4 numbers?"
+        prompt = f"The rule is '{rule}'. The pattern starts {shown}, ___. What is the next number?"
         payload["shown"] = tuple(terms)
         return Problem(
             skill_id=self.id,
             level=level,
             prompt=prompt,
-            answer=SequenceAnswer(nxt),
+            answer=IntegerAnswer(nxt),
             payload=payload,
         )
 
     def invariant(self, problem: Problem) -> bool:
-        return all(v >= 0 for v in problem.answer.values) and super().invariant(problem)
+        return problem.answer.value >= 0 and super().invariant(problem)
 
     def lesson(self) -> Lesson:
         return Lesson(
@@ -484,22 +508,20 @@ class GeneratePatterns(Skill):
         if op == "add":
             return [
                 f"Each number is {k} more than the one before it.",
-                f"Keep adding {k} to the last number four more times.",
+                f"Add {k} to the last number in the pattern.",
             ]
         return [
             f"Each number is {k} times the one before it.",
-            f"Keep multiplying the last number by {k} four more times.",
+            f"Multiply the last number in the pattern by {k}.",
         ]
 
     def worked_example(self, problem: Problem) -> str:
         op, k = problem.payload["op"], problem.payload["k"]
         last = problem.payload["shown"][-1]
-        nxt = problem.answer.values
-        verb = "Add" if op == "add" else "Multiply by"
-        return (
-            f"{verb} {k} starting from {last}: "
-            f"{nxt[0]}, {nxt[1]}, {nxt[2]}, {nxt[3]}."
-        )
+        nxt = problem.answer.value
+        if op == "add":
+            return f"Add {k} to the last number: {last} + {k} = {nxt}."
+        return f"Multiply the last number by {k}: {last} × {k} = {nxt}."
 
 
 register(FactsTo12())

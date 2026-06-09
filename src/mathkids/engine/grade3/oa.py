@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 
-from mathkids.answers import IntegerAnswer, SequenceAnswer
+from mathkids.answers import IntegerAnswer
 from mathkids.engine.base import Lesson, Problem, Skill, register
 
 _DOMAIN = "Operations & Algebraic Thinking"
@@ -562,7 +562,7 @@ class ArithmeticPatterns(Skill):
     domain = _DOMAIN
     title = "Arithmetic patterns"
     max_level = 3
-    answer_type = "sequence"
+    answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
@@ -576,22 +576,22 @@ class ArithmeticPatterns(Skill):
             step = rng.choice((7, 8, 9))
             start = step * rng.randint(1, 6)
         shown = [start + step * i for i in range(4)]
-        nxt = tuple(start + step * i for i in range(4, 7))
+        nxt = start + step * 4
         shown_str = ", ".join(str(v) for v in shown)
         prompt = (
-            f"This pattern adds {step} each time: {shown_str}, ... "
-            f"What are the next 3 numbers?"
+            f"This pattern adds {step} each time: {shown_str}, ___. "
+            f"What is the next number?"
         )
         return Problem(
             skill_id=self.id,
             level=level,
             prompt=prompt,
-            answer=SequenceAnswer(nxt),
+            answer=IntegerAnswer(nxt),
             payload={"start": start, "step": step, "shown": tuple(shown)},
         )
 
     def invariant(self, problem: Problem) -> bool:
-        return all(v >= 0 for v in problem.answer.values) and super().invariant(problem)
+        return problem.answer.value >= 0 and super().invariant(problem)
 
     def lesson(self) -> Lesson:
         return Lesson(
@@ -606,19 +606,16 @@ class ArithmeticPatterns(Skill):
 
     def hints(self, problem: Problem) -> list[str]:
         step = problem.payload["step"]
+        last = problem.payload["shown"][-1]
         return [
             f"Each number is {step} more than the one before it.",
-            f"Keep adding {step} three more times to get the next 3 numbers.",
+            f"Add {step} to the last number, {last}.",
         ]
 
     def worked_example(self, problem: Problem) -> str:
         step = problem.payload["step"]
         last = problem.payload["shown"][-1]
-        nxt = problem.answer.values
-        return (
-            f"Add {step} each time starting from {last}: "
-            f"{nxt[0]}, {nxt[1]}, {nxt[2]}."
-        )
+        return f"Add {step} to the last number: {last} + {step} = {problem.answer.value}."
 
 
 register(MeaningOfMultiplication())

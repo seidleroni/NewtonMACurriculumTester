@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 
-from mathkids.answers import ComparatorAnswer, IntegerAnswer, SequenceAnswer
+from mathkids.answers import ComparatorAnswer, IntegerAnswer
 from mathkids.engine.base import Lesson, Problem, Skill, register, shuffled_mc
 
 _PLACE_VALUE = {"hundreds": 100, "tens": 10, "ones": 1}
@@ -29,7 +29,7 @@ class ThreeDigitPlaceValue(Skill):
             ans = digit
             mode = "digit"
         else:
-            prompt = f"What is the value of the {place} digit in {n}?"
+            prompt = f"In {n}, how much is the digit in the {place} place worth?"
             ans = digit * _PLACE_VALUE[place]
             mode = "value"
         return Problem(
@@ -64,7 +64,7 @@ class ThreeDigitPlaceValue(Skill):
             ]
         return [
             f"First find the digit in the {place} column.",
-            f"Then multiply it by {_PLACE_VALUE[place]} to get its value.",
+            f"Then multiply it by {_PLACE_VALUE[place]} to see how much it is worth.",
         ]
 
     def worked_example(self, problem: Problem) -> str:
@@ -84,7 +84,7 @@ class SkipCount(Skill):
     domain = "Number & Operations in Base Ten"
     title = "Skip-count by 5s, 10s, 100s"
     max_level = 3
-    answer_type = "sequence"
+    answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
@@ -94,24 +94,25 @@ class SkipCount(Skill):
             step = rng.choice((5, 10, 100))
         else:
             step = 100
-        # Pick a start that is a multiple of the step and keeps 3 terms within 0..1000.
-        max_start = 1000 - 3 * step
+        # Pick a start that is a multiple of the step and keeps 4 terms within 0..1000.
+        max_start = 1000 - 4 * step
         start = rng.randint(0, max_start // step) * step
-        terms = (start + step, start + 2 * step, start + 3 * step)
+        shown = (start, start + step, start + 2 * step, start + 3 * step)
+        ans = start + 4 * step
+        shown_str = ", ".join(str(v) for v in shown)
         prompt = (
-            f"Skip-count by {step}s. What are the next three numbers after {start}? "
-            f"{start}, ___, ___, ___"
+            f"Skip-count by {step}s: {shown_str}, ___. What number comes next?"
         )
         return Problem(
             skill_id=self.id,
             level=level,
             prompt=prompt,
-            answer=SequenceAnswer(terms),
-            payload={"start": start, "step": step, "terms": list(terms)},
+            answer=IntegerAnswer(ans),
+            payload={"start": start, "step": step, "shown": list(shown)},
         )
 
     def invariant(self, problem: Problem) -> bool:
-        return all(0 <= t <= 1000 for t in problem.answer.values) and super().invariant(problem)
+        return 0 <= problem.answer.value <= 1000 and super().invariant(problem)
 
     def lesson(self) -> Lesson:
         return Lesson(
@@ -126,20 +127,16 @@ class SkipCount(Skill):
 
     def hints(self, problem: Problem) -> list[str]:
         step = problem.payload["step"]
-        start = problem.payload["start"]
+        last = problem.payload["shown"][-1]
         return [
             f"Each jump adds {step}.",
-            f"Start at {start} and add {step}: {start} + {step} = {start + step}.",
+            f"Add {step} to the last number, {last}.",
         ]
 
     def worked_example(self, problem: Problem) -> str:
-        start = problem.payload["start"]
         step = problem.payload["step"]
-        t1, t2, t3 = problem.payload["terms"]
-        return (
-            f"Add {step} each time: {start} + {step} = {t1}, {t1} + {step} = {t2}, "
-            f"{t2} + {step} = {t3}."
-        )
+        last = problem.payload["shown"][-1]
+        return f"Add {step} to the last number: {last} + {step} = {last + step}."
 
 
 class ReadWriteNumbers(Skill):
