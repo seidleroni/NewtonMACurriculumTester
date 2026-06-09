@@ -1,0 +1,32 @@
+# Notes for Claude
+
+## Environment
+
+- `python` is not on PATH (Windows Store stub intercepts it). Use `.venv/Scripts/python.exe` for everything, including tests: `.venv/Scripts/python.exe -m pytest tests/`
+- There is no sqlite3 CLI installed; query the DB through Python's `sqlite3` module.
+
+## Database (mathkids.db)
+
+SQLite file at the repo root. Daily backups land in `backups/mathkids-YYYY-MM-DD.db`.
+
+Tables:
+- `kid` — id, name, grade, emoji, daily_goal. (Jacob = grade 2, Samuel = grade 4.)
+- `session` — one row per practice session: kid_id, plan, answered, num_correct, day, started_at/ended_at.
+- `attempt` — one row per question answered: kid_id, skill_id, session_id, level, prompt, expected, given, correct (0/1), response_ms, day, created_at. The full prompt text and the kid's literal answer are stored, so you can reconstruct exactly what they saw and typed.
+- `skill_state` — per (kid, skill) mastery tracking: score, level, Leitner box, consec_correct, recent history, due_at, lesson_seen, introduced_at/mastered_at/last_seen_at.
+
+The go-to query for "what did the kids miss":
+
+```sql
+SELECT k.name, a.skill_id, a.level, a.prompt, a.expected, a.given, a.created_at
+FROM attempt a JOIN kid k ON k.id = a.kid_id
+WHERE a.correct = 0 ORDER BY a.created_at;
+```
+
+`skill_id` values are Common Core ids (e.g. `2.NBT.A.1`); the generator for a skill lives in `src/mathkids/engine/grade{N}/{domain}.py` and is findable by grepping for the id.
+
+## Gotchas
+
+- Problems are regenerated deterministically from (skill, level, seed) at grading time. If you change a generator while the app is running, restart it before a kid answers an in-flight question, or the regenerated problem won't match what was shown.
+- Questions must require only a single answer in one input box (or one multiple-choice pick). No "list all the factors" / "next three numbers" formats — the kids find multi-answer entry confusing. `SequenceAnswer`/`SetAnswer` still exist in `answers.py` but no skill should use them.
+- Prompt wording should be concrete and kid-friendly: prefer story problems with names/objects over abstract phrasing ("A number is 4 times as many as 2"), and plain words over math-register ones ("how much is the digit worth" rather than "the value of the digit").
