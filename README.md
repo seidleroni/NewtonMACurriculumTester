@@ -49,7 +49,7 @@ src/mathkids/
   app.py         # FastAPI routes + server-rendered HTML (forms; keyboard-first)
   templates/     # Jinja2
   static/        # CSS + ~50 lines of JS (autofocus, Enter-to-continue, a-d picks a choice)
-tests/           # property + unit + endpoint tests (551 passing)
+tests/           # property + unit + endpoint tests (553 passing)
 ```
 
 > UI note: Phase 0 uses classic server-rendered form posts (sturdy, zero-dependency, fully

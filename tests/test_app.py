@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mathkids import db
-from mathkids.app import app, regenerate
+from mathkids.app import app, celebration_headline, regenerate
 from mathkids.engine import REGISTRY
 
 
@@ -88,10 +88,11 @@ def test_full_daily_loop(client, tmp_path):
 
     assert wrong_checked, "expected to exercise a wrong answer"
 
-    # Finishing the plan finalizes the session and shows the summary.
+    # Finishing the plan finalizes the session and shows the celebration summary.
     done = client.get(f"/kid/{kid_id}/play")
     assert done.status_code == 200
     assert "Nice work" in done.text
+    assert 'id="celebrate"' in done.text
 
     # Dashboards render.
     assert client.get(f"/kid/{kid_id}").status_code == 200
@@ -238,6 +239,47 @@ def test_multiple_choice_problem_renders_and_grades(client):
     )
     assert r.status_code == 200
     assert "Yes" in r.text
+
+
+def test_celebration_headline_tiers():
+    assert celebration_headline(12, 12) == ("💯", "Perfect day!")
+    assert celebration_headline(11, 12)[1] == "Outstanding!"
+    assert celebration_headline(9, 12)[1] == "Great job!"
+    assert celebration_headline(6, 12)[1] == "Strong work!"
+    assert celebration_headline(2, 12)[1] == "You finished it!"
+    assert celebration_headline(0, 0)[1] == "You finished it!"
+
+
+def test_summary_shows_mastery_and_century_milestone(client):
+    kid_id = 1
+    conn = db.connect()
+    try:
+        today, now = db.today_ordinal(), db.now_iso()
+        # 98 attempts before today, then a finished 5-problem session today:
+        # lifetime total 103 crosses the 100 mark during this session.
+        for _ in range(98):
+            db.record_attempt(
+                conn, kid_id, "2.OA.B.2", None, 1, "p", "1", "1", True, 900,
+                today - 1, now,
+            )
+        session_id = db.create_session(conn, kid_id, "[]", today, now)
+        for _ in range(5):
+            db.record_attempt(
+                conn, kid_id, "2.OA.B.2", session_id, 1, "p", "1", "1", True, 900,
+                today, now,
+            )
+        db.advance_session(conn, session_id, 5, 4)
+        db.end_session(conn, session_id, now)
+        # ...and a skill mastered today.
+        db.introduce_skill(conn, kid_id, "2.OA.B.2", today, now)
+        db.save_skill_state(conn, kid_id, "2.OA.B.2", mastered_at=now)
+    finally:
+        conn.close()
+
+    r = client.get(f"/kid/{kid_id}/done")
+    assert r.status_code == 200
+    assert "MASTERED" in r.text
+    assert "100 problems" in r.text
 
 
 def test_unknown_kid_redirects_home(client):

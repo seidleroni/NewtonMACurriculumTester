@@ -77,6 +77,21 @@ def regenerate(item: dict) -> Problem:
     return skill.generate(item["level"], random.Random(item["seed"]))
 
 
+def celebration_headline(num_correct: int, answered: int) -> tuple[str, str]:
+    """(emoji, headline) for the summary page. Every tier celebrates —
+    finishing the day's set is the achievement."""
+    pct = 100 * num_correct / answered if answered else 0
+    if pct == 100:
+        return "💯", "Perfect day!"
+    if pct >= 90:
+        return "🌟", "Outstanding!"
+    if pct >= 75:
+        return "🎉", "Great job!"
+    if pct >= 50:
+        return "💪", "Strong work!"
+    return "✅", "You finished it!"
+
+
 # --- routes ---------------------------------------------------------------
 
 @app.get("/")
@@ -300,6 +315,27 @@ def done(request: Request, kid_id: int):
                         else False,
                     }
                 )
+        emoji, headline = celebration_headline(
+            session["num_correct"] if session else 0,
+            session["answered"] if session else 0,
+        )
+        today_prefix = db.now_iso()[:10]
+        mastered_today = [
+            REGISTRY[sid].title
+            for sid, row in states.items()
+            if sid in REGISTRY
+            and row["mastered_at"]
+            and row["mastered_at"].startswith(today_prefix)
+        ]
+        # All-time century milestone (only-up signal): did this session push the
+        # kid's lifetime total past a multiple of 100?
+        milestone = None
+        if session:
+            total = db.total_attempts(conn, kid_id)
+            before = total - session["answered"]
+            if total >= 100 and total // 100 > before // 100:
+                milestone = total // 100 * 100
+
         return templates.TemplateResponse(
             request,
             "summary.html",
@@ -308,6 +344,10 @@ def done(request: Request, kid_id: int):
                 "session": session,
                 "practiced": practiced,
                 "next_skill": REGISTRY[nxt].title if nxt else None,
+                "emoji": emoji,
+                "headline": headline,
+                "mastered_today": mastered_today,
+                "milestone": milestone,
             },
         )
     finally:

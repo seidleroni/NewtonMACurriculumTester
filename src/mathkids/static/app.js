@@ -36,4 +36,34 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     });
   }
+
+  // End-of-session celebration: confetti + the score counting up.
+  var celebrate = document.getElementById("celebrate");
+  var calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (celebrate && !calm) {
+    var colors = ["#6b4ea8", "#8a6fd0", "#f0a818", "#1f9d55", "#e0608a", "#4ea8d8"];
+    for (var i = 0; i < 80; i++) {
+      var piece = document.createElement("i");
+      piece.className = "confetti";
+      piece.style.left = Math.random() * 100 + "%";
+      piece.style.background = colors[i % colors.length];
+      piece.style.animationDelay = Math.random() * 1.2 + "s";
+      piece.style.animationDuration = 2.2 + Math.random() * 1.8 + "s";
+      piece.style.transform = "rotate(" + Math.floor(Math.random() * 360) + "deg)";
+      document.body.appendChild(piece);
+    }
+  }
+  var count = document.getElementById("count");
+  if (count && !calm) {
+    var target = parseInt(count.textContent, 10);
+    if (!isNaN(target) && target > 0) {
+      var shown = 0;
+      count.textContent = "0";
+      var tick = setInterval(function () {
+        shown += 1;
+        count.textContent = String(shown);
+        if (shown >= target) clearInterval(tick);
+      }, Math.min(90, 700 / target));
+    }
+  }
 });

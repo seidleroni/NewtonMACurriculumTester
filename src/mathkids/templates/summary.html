@@ -1,9 +1,19 @@
 {% extends "base.html" %}
 {% block content %}
-<h1 class="title">Nice work, {{ kid.name }}! 🎉</h1>
-{% if session %}
-<p class="big">{{ session.num_correct }} / {{ session.answered }} correct</p>
-{% endif %}
+<div class="celebrate" id="celebrate">
+  <div class="burst">{{ emoji }}</div>
+  <h1 class="title headline">{{ headline }}</h1>
+  <p class="subline">Nice work, {{ kid.name }}!</p>
+  {% if session %}
+  <p class="big score"><span id="count">{{ session.num_correct }}</span> / {{ session.answered }} correct</p>
+  {% endif %}
+  {% for title in mastered_today %}
+  <p class="banner mastered">🏅 You MASTERED <b>{{ title }}</b>!</p>
+  {% endfor %}
+  {% if milestone %}
+  <p class="banner milestone">🏆 That makes <b>{{ milestone }} problems</b> solved — all time!</p>
+  {% endif %}
+</div>
 <ul class="skill-summary">
   {% for p in practiced %}
   <li>{{ p.title }} <span class="stars">{{ star_bar(p.stars) }}</span>{% if p.mastered %} 🏅{% endif %}</li>

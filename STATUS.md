@@ -2,7 +2,7 @@
 
 Living status doc. Pairs with [`DESIGN.md`](DESIGN.md) (the full spec). Last updated 2026-06-09.
 
-Quick health: `uv run pytest` → **551 passing**, `uv run ruff check` clean. **80 math skills**
+Quick health: `uv run pytest` → **553 passing**, `uv run ruff check` clean. **80 math skills**
 across Grades 2–4 (26 / 25 / 29) — the complete catalog. Every skill is structurally verified
 by a property test and its math was independently re-solved by an adversarial audit (0 wrong
 answers found); the Phase-3 shape cards were additionally verified geometrically (side lengths,
@@ -64,7 +64,10 @@ unlock as they progress. A **placement probe** (ace the first 2 attempts on a ne
 at level 2) keeps already-known skills from being a grind, **within-session adaptivity**
 rewrites the rest of today's plan when a level changes mid-session, an unfinished same-day
 session is **resumed** (not discarded) by the Start button, and completing a session writes a
-once-daily **DB backup** to `backups/`.
+once-daily **DB backup** to `backups/`. Finishing the day's set lands on a **celebration
+screen**: confetti, an accuracy-tiered headline (always positive — finishing is the win), a
+counting-up score, a 🏅 banner for any skill mastered today, and a 🏆 banner when the kid's
+all-time solved count crosses a century — only-up signals, per the no-streaks rule.
 
 ---
 

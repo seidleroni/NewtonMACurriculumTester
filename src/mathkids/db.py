@@ -198,6 +198,13 @@ def recent_correctness(conn, kid_id: int, skill_id: str, limit: int = 10) -> lis
     return [r["correct"] for r in reversed(rows)]
 
 
+def total_attempts(conn, kid_id: int) -> int:
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM attempt WHERE kid_id = ?", (kid_id,)
+    ).fetchone()
+    return row["n"]
+
+
 def week_stats(conn, kid_id: int, today: int) -> dict:
     since = today - 6
     row = conn.execute(

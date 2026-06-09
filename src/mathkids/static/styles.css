@@ -117,3 +117,34 @@ h1, h2 { color: var(--accent); }
 .big { font-size: 26px; font-weight: 800; text-align: center; }
 .skill-summary { list-style: none; padding: 0; font-size: 18px; }
 .skill-summary li { padding: 6px 0; }
+
+/* --- end-of-session celebration --- */
+.celebrate { text-align: center; }
+.celebrate .burst {
+  font-size: 72px; line-height: 1;
+  animation: pop 0.7s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
+.celebrate .headline { margin: 6px 0 0; animation: pop 0.7s 0.15s cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+.celebrate .subline { color: var(--muted); font-weight: 600; margin: 4px 0 0; }
+.celebrate .score { margin-top: 10px; }
+.banner {
+  display: inline-block; border-radius: 999px; padding: 8px 18px; font-size: 18px;
+  animation: pop 0.7s 0.4s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
+.banner.mastered { background: #ffe9a8; color: #7a5a00; }
+.banner.milestone { background: #ddf3e4; color: #14633a; }
+@keyframes pop {
+  from { transform: scale(0); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.confetti {
+  position: fixed; top: -18px; width: 10px; height: 16px; border-radius: 2px;
+  z-index: 5; pointer-events: none;
+  animation: confetti-fall 3s ease-in forwards;
+}
+@keyframes confetti-fall {
+  to { transform: translateY(105vh) rotate(720deg); opacity: 0.6; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .celebrate .burst, .celebrate .headline, .banner { animation: none; }
+}
