@@ -64,6 +64,35 @@ def test_demotion_after_a_bad_run():
     assert state.level == 1
 
 
+def test_placement_probe_promotes_after_acing_first_attempts():
+    state = MasteryState()
+    upd = apply_attempt(state, max_level=3, correct=True, attempt_index=0)
+    assert upd.state.level == 1
+    upd = apply_attempt(upd.state, max_level=3, correct=True, attempt_index=1)
+    assert upd.state.level == 2
+    assert upd.leveled_up
+
+
+def test_placement_probe_requires_every_probe_attempt_correct():
+    state = MasteryState()
+    upd = apply_attempt(state, max_level=3, correct=False, attempt_index=0)
+    upd = apply_attempt(upd.state, max_level=3, correct=True, attempt_index=1)
+    assert upd.state.level == 1
+
+
+def test_placement_probe_never_fires_later():
+    # A correct pair anywhere past the first attempts is just normal progress.
+    state = MasteryState(recent="11")
+    upd = apply_attempt(state, max_level=3, correct=True, attempt_index=5)
+    assert upd.state.level == 1
+
+
+def test_placement_probe_off_without_attempt_index():
+    state = MasteryState(consec_correct=1, recent="1")
+    upd = apply_attempt(state, max_level=3, correct=True)
+    assert upd.state.level == 1
+
+
 def test_stars_mapping():
     assert stars(0.0) == 0
     assert stars(0.2) == 1

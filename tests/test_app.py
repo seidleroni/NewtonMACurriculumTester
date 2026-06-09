@@ -51,7 +51,7 @@ def test_landing_page_lists_kid(client):
     assert "Jacob" in r.text
 
 
-def test_full_daily_loop(client):
+def test_full_daily_loop(client, tmp_path):
     kid_id = 1
     r = client.post(f"/kid/{kid_id}/start")
     assert r.status_code == 200  # followed redirect into play (lesson or problem)
@@ -105,6 +105,46 @@ def test_full_daily_loop(client):
         conn.close()
     assert states
     assert any(row["attempts"] > 0 for row in states.values())
+
+    # Finishing the session wrote exactly one dated backup of the DB.
+    backups = list((tmp_path / "backups").glob("test-*.db"))
+    assert len(backups) == 1
+
+
+def test_probe_promotes_and_updates_remaining_plan_items(client):
+    """Acing the first two attempts on a fresh skill triggers the placement
+    probe; the rest of today's plan for that skill must follow to level 2."""
+    kid_id = 1
+    client.post(f"/kid/{kid_id}/start")
+    promoted = None
+    for _ in range(30):
+        item = _current_item(kid_id)
+        if item is None:
+            break
+        idx, it = item
+        skill_id = it["skill"]
+        if _lesson_seen(kid_id, skill_id) == 0:
+            client.post(f"/kid/{kid_id}/seen", data={"skill_id": skill_id})
+            continue
+        problem = regenerate(it)
+        client.post(
+            f"/kid/{kid_id}/answer",
+            data={"idx": idx, "answer": problem.answer.canonical(), "ms": 1500},
+        )
+        conn = db.connect()
+        try:
+            st = db.get_skill_state(conn, kid_id, skill_id)
+            session = db.get_active_session(conn, kid_id)
+        finally:
+            conn.close()
+        if st["level"] == 2:
+            promoted = skill_id
+            plan = json.loads(session["plan"])
+            remaining = [p for p in plan[session["answered"] :] if p["skill"] == skill_id]
+            assert remaining, "expected more planned items for the promoted skill"
+            assert all(p["level"] == 2 for p in remaining)
+            break
+    assert promoted, "expected the placement probe to promote a skill to level 2"
 
 
 def test_start_resumes_same_day_session(client):

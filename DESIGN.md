@@ -32,10 +32,12 @@ repetition, and shows progress to both the kid and the parent.
 - **Math first.** Grades 2–4. Literacy and higher grades reuse the same engine later.
 
 **Explicit non-goals (for now):** accounts/auth, cloud sync, multiplayer, sound/voice,
-mobile-native apps, AI at runtime (all teaching content is authored ahead of time and baked in),
-and **day-streak gamification** — we practice only on school nights, so a "🔥 N-day streak" that
-breaks every weekend/holiday would misfire and discourage. Progress is shown as **skills
-mastered, level-ups, and accuracy/speed trends** instead (signals that only ever go up).
+mobile-native apps, AI at runtime (all teaching content is authored ahead of time and baked in).
+
+**Permanent non-goal (decided, not deferred): day-streak gamification.** We practice only on
+school nights, so a "🔥 N-day streak" that breaks every weekend/holiday would misfire and
+discourage. Progress is shown as **skills mastered, level-ups, and accuracy/speed trends**
+instead (signals that only ever go up). Do not re-propose streaks.
 
 ---
 

@@ -13,6 +13,7 @@ __pycache__/
 *.db
 *.db-journal
 mathkids.db
+backups/
 
 # OS
 .DS_Store

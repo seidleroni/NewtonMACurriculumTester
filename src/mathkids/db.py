@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import sqlite3
 from datetime import date, datetime
+from pathlib import Path
 
 DEFAULT_DB = "mathkids.db"
 
@@ -82,6 +83,24 @@ def connect(path: str | None = None) -> sqlite3.Connection:
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(_SCHEMA)
     conn.commit()
+
+
+def backup_db(conn: sqlite3.Connection) -> str | None:
+    """Copy the live DB to backups/<name>-YYYY-MM-DD.db beside it, at most once
+    per day. Cheap insurance: all of the kids' history lives in one local file."""
+    src = Path(db_path()).resolve()
+    out_dir = src.parent / "backups"
+    dest = out_dir / f"{src.stem}-{date.today().isoformat()}.db"
+    if dest.exists():
+        return None
+    out_dir.mkdir(parents=True, exist_ok=True)
+    target = sqlite3.connect(dest)
+    try:
+        with target:
+            conn.backup(target)
+    finally:
+        target.close()
+    return str(dest)
 
 
 def today_ordinal() -> int:

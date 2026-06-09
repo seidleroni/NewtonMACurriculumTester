@@ -137,6 +137,7 @@ def play(request: Request, kid_id: int):
         idx = session["answered"]
         if idx >= len(plan):
             db.end_session(conn, session["id"], db.now_iso())
+            db.backup_db(conn)
             return RedirectResponse(f"/kid/{kid_id}/done", status_code=303)
 
         item = plan[idx]
@@ -213,7 +214,16 @@ def answer(
             consec_correct=st["consec_correct"],
             recent=st["recent"],
         )
-        upd = apply_attempt(ms_state, skill.max_level, correct, fast)
+        upd = apply_attempt(
+            ms_state, skill.max_level, correct, fast, attempt_index=st["attempts"]
+        )
+        if upd.state.level != st["level"]:
+            # Within-session adaptivity (DESIGN §7.3): the rest of today's plan
+            # for this skill follows the kid to the new level immediately.
+            for it in plan[idx + 1 :]:
+                if it["skill"] == skill.id:
+                    it["level"] = upd.state.level
+            db.update_session_plan(conn, session["id"], json.dumps(plan))
         new_box = update_box(st["box"], correct)
         now = db.now_iso()
         today = db.today_ordinal()

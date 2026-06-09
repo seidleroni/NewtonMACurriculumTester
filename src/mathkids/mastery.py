@@ -20,6 +20,8 @@ PROMOTE_EPS = 0.05    # how close to the ceiling counts as "ready"
 MASTER_SCORE = 0.95
 RECENT_WINDOW = 5
 DEMOTE_MIN_CORRECT = 2  # < this many correct in the last RECENT_WINDOW -> demote
+PROBE_WINDOW = 2      # the first attempts on a fresh skill double as a placement probe
+PROBE_LEVEL = 2       # acing the probe starts the skill here instead of level 1
 
 
 @dataclass
@@ -71,8 +73,13 @@ def is_mastered(score: float, level: int, max_level: int) -> bool:
 
 
 def apply_attempt(
-    state: MasteryState, max_level: int, correct: bool, fast: bool = False
+    state: MasteryState, max_level: int, correct: bool, fast: bool = False,
+    attempt_index: int | None = None,
 ) -> MasteryUpdate:
+    """Apply one attempt. `attempt_index` is the 0-based count of prior attempts
+    on this skill; when provided, acing the first PROBE_WINDOW attempts acts as a
+    placement probe — a kid who clearly already knows the skill skips to
+    PROBE_LEVEL instead of grinding up from level 1 (DESIGN §7.4)."""
     was_mastered = is_mastered(state.score, state.level, max_level)
     new_score = update_score(state.score, state.level, max_level, correct, fast)
     recent = (state.recent + ("1" if correct else "0"))[-RECENT_WINDOW:]
@@ -80,7 +87,17 @@ def apply_attempt(
     level = state.level
     leveled_up = leveled_down = False
 
-    if correct and consec >= PROMOTE_STREAK and level < max_level:
+    if (
+        correct
+        and attempt_index is not None
+        and attempt_index == PROBE_WINDOW - 1
+        and consec >= PROBE_WINDOW  # every probe attempt was correct
+        and level < min(PROBE_LEVEL, max_level)
+    ):
+        level = min(PROBE_LEVEL, max_level)
+        consec = 0
+        leveled_up = True
+    elif correct and consec >= PROMOTE_STREAK and level < max_level:
         if new_score >= level_ceiling(level, max_level) - PROMOTE_EPS:
             level += 1
             consec = 0
