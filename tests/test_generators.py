@@ -61,6 +61,21 @@ def test_every_skill_has_teaching_content():
         assert skill.worked_example(problem).strip(), skill.id
 
 
+@pytest.mark.parametrize("skill,level", list(_all_skill_levels()), ids=lambda x: f"{x}")
+def test_categorical_answers_are_selectable(skill, level):
+    """Comparator and word answers are pick-one across every grade/subject: each
+    must offer `choices` the kid taps (never a text box), with exactly one correct."""
+    for seed in SEEDS:
+        problem = skill.generate(level, random.Random(seed))
+        answer = problem.answer
+        if answer.answer_type not in ("comparator", "word"):
+            continue
+        ctx = (skill.id, level, seed, answer.choices)
+        assert answer.choices, ctx
+        correct = [c for c in answer.choices if answer.grade(c).correct]
+        assert len(correct) == 1, ctx
+
+
 def test_registry_and_sequences_are_consistent():
     seq_ids = {sid for ids in SEQUENCES.values() for sid in ids}
     reg_ids = set(REGISTRY)

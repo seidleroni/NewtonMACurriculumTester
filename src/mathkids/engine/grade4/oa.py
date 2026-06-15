@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import random
 
-from mathkids.answers import IntegerAnswer, WordAnswer
-from mathkids.engine.base import Lesson, Problem, Skill, register, shuffled_mc
+from mathkids.answers import IntegerAnswer
+from mathkids.engine.base import Lesson, Problem, Skill, register, shuffled_mc, shuffled_word
 
 _DOMAIN = "Operations & Algebraic Thinking"
 
@@ -383,12 +383,13 @@ class FactorsMultiplesPrimes(Skill):
         # prime vs composite (n >= 2 so the question is well-posed)
         n = rng.randint(2, hi)
         label = "prime" if _is_prime(n) else "composite"
+        other = "composite" if label == "prime" else "prime"
         prompt = f"Is {n} prime or composite?"
         return Problem(
             skill_id=self.id,
             level=level,
             prompt=prompt,
-            answer=WordAnswer(label),
+            answer=shuffled_word(rng, label, (other,)),
             payload={"variant": "primecheck", "n": n, "label": label},
         )
 

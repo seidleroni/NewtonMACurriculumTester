@@ -197,6 +197,12 @@ Grading never depends on exact string formatting of the kid's input — only on 
 This is heavily tested (§11): for each type, a battery of equivalent forms must all grade
 correct and a battery of near-misses must all grade incorrect.
 
+Categorical answers are *pick-one*, not typed. Any answer that exposes a non-empty
+`choices` tuple (the comparator's `<`/`=`/`>`, and word answers like prime/composite,
+odd/even, and shape names — built via `shuffled_word`) renders as tappable buttons
+instead of a text box, across every grade and subject. `choices` is presentation only;
+`grade()` remains the source of truth (so typed answers still grade correctly).
+
 ---
 
 ## 6. Mastery model (per kid × skill)

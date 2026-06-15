@@ -11,7 +11,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 
-from mathkids.answers import Answer, MultipleChoiceAnswer
+from mathkids.answers import Answer, MultipleChoiceAnswer, WordAnswer
 
 
 @dataclass(frozen=True)
@@ -46,6 +46,22 @@ def shuffled_mc(
         raise ValueError(f"duplicate options: {opts}")
     rng.shuffle(opts)
     return MultipleChoiceAnswer(tuple(opts), opts.index(correct))
+
+
+def shuffled_word(
+    rng: random.Random,
+    correct: str,
+    distractors: tuple[str, ...],
+    aliases: tuple[str, ...] = (),
+) -> WordAnswer:
+    """Build a WordAnswer the kid picks from buttons (correct word + distractors),
+    deterministically shuffled. Grading still accepts the correct word and its
+    aliases, so typed answers keep working too."""
+    opts = [correct, *distractors]
+    if len(set(opts)) != len(opts):
+        raise ValueError(f"duplicate options: {opts}")
+    rng.shuffle(opts)
+    return WordAnswer(correct, aliases=aliases, choices=tuple(opts))
 
 
 class Skill:

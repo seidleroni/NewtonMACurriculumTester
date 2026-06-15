@@ -13,8 +13,8 @@ from __future__ import annotations
 import random
 from fractions import Fraction
 
-from mathkids.answers import FractionAnswer, IntegerAnswer, WordAnswer
-from mathkids.engine.base import Lesson, Problem, Skill, register
+from mathkids.answers import FractionAnswer, IntegerAnswer
+from mathkids.engine.base import Lesson, Problem, Skill, register, shuffled_word
 
 # Number of equal parts -> kid-facing part name + reasonable synonyms a kid types.
 _SHARE_NAMES = {
@@ -44,7 +44,12 @@ class CategorizeShapes(Skill):
             skill_id=self.id,
             level=level,
             prompt=prompt,
-            answer=WordAnswer("quadrilateral", aliases=("quadrilaterals",)),
+            answer=shuffled_word(
+                rng,
+                "quadrilateral",
+                ("triangle", "pentagon", "hexagon"),
+                aliases=("quadrilaterals",),
+            ),
             payload={"variant": "special_quad", "shape": shape},
         )
 

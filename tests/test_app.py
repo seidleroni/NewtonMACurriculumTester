@@ -241,6 +241,36 @@ def test_multiple_choice_problem_renders_and_grades(client):
     assert "Yes" in r.text
 
 
+def test_comparator_problem_renders_as_buttons_and_grades(client):
+    """Compare-with-<,=,> shows tappable sign buttons (no text box) and grades
+    the posted symbol."""
+    kid_id = 1
+    conn = db.connect()
+    try:
+        today, now = db.today_ordinal(), db.now_iso()
+        db.introduce_skill(conn, kid_id, "2.NBT.A.4", today, now)
+        db.save_skill_state(conn, kid_id, "2.NBT.A.4", lesson_seen=1)
+        session_id = db.create_session(conn, kid_id, "[]", today, now)
+        plan = [{"skill": "2.NBT.A.4", "level": 1, "seed": session_id * 1000}]
+        db.update_session_plan(conn, session_id, json.dumps(plan))
+    finally:
+        conn.close()
+
+    page = client.get(f"/kid/{kid_id}/play")
+    assert page.status_code == 200
+    assert 'type="radio"' in page.text
+    assert 'value="="' in page.text  # the "=" sign is a pickable option
+    assert 'class="answer"' not in page.text  # no free-text input
+
+    problem = regenerate(plan[0])
+    r = client.post(
+        f"/kid/{kid_id}/answer",
+        data={"idx": 0, "answer": problem.answer.canonical(), "ms": 1500},
+    )
+    assert r.status_code == 200
+    assert "Yes" in r.text
+
+
 def test_celebration_headline_tiers():
     assert celebration_headline(12, 12) == ("💯", "Perfect day!")
     assert celebration_headline(11, 12)[1] == "Outstanding!"

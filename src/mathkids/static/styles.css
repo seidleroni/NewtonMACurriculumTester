@@ -62,6 +62,10 @@ h1, h2 { color: var(--accent); }
 .choice:hover { border-color: var(--accent-2); }
 .choice:has(input:checked) { border-color: var(--accent); background: #f0eafd; }
 .choice .letter { display: inline-block; font-weight: 800; color: var(--accent); margin-right: 6px; }
+/* Inline pick-one row for short fixed answers (<, =, >, prime/composite, shape names). */
+.choices.inline { flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 12px; max-width: none; }
+.choice.pick { text-align: center; min-width: 64px; padding: 12px 20px; font-weight: 700; }
+.choice.pick span { font-size: 24px; }
 .answer {
   font-size: 30px; text-align: center; width: 160px; padding: 8px 10px;
   border: 3px solid var(--accent-2); border-radius: 12px; outline: none;

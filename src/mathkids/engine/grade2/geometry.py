@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import random
 
-from mathkids.answers import IntegerAnswer, WordAnswer
-from mathkids.engine.base import Lesson, Problem, Skill, register
+from mathkids.answers import IntegerAnswer
+from mathkids.engine.base import Lesson, Problem, Skill, register, shuffled_word
 
 # polygon side-count -> kid-facing name (square/rectangle are NOT accepted for 4)
 _POLYGON_NAMES = {
@@ -36,12 +36,13 @@ class NameShapesByAttributes(Skill):
     def generate(self, level: int, rng: random.Random) -> Problem:
         sides = rng.choice((3, 4) if level <= 1 else (3, 4, 5, 6))
         name = _POLYGON_NAMES[sides]
+        distractors = tuple(nm for nm in _POLYGON_NAMES.values() if nm != name)
         prompt = f"A polygon with {sides} sides is called a ___?"
         return Problem(
             skill_id=self.id,
             level=level,
             prompt=prompt,
-            answer=WordAnswer(name),
+            answer=shuffled_word(rng, name, distractors),
             payload={"sides": sides, "name": name},
         )
 
@@ -140,12 +141,13 @@ class EqualShares(Skill):
     def generate(self, level: int, rng: random.Random) -> Problem:
         parts = rng.choice((2, 4) if level <= 1 else (2, 3, 4))
         name, aliases = _SHARE_NAMES[parts]
+        distractors = tuple(nm for nm, _al in _SHARE_NAMES.values() if nm != name)
         prompt = f"One of {parts} equal parts of a whole is called a ___?"
         return Problem(
             skill_id=self.id,
             level=level,
             prompt=prompt,
-            answer=WordAnswer(name, aliases=aliases),
+            answer=shuffled_word(rng, name, distractors, aliases=aliases),
             payload={
                 "parts": parts,
                 "name": name,

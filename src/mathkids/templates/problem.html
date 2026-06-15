@@ -23,6 +23,15 @@
       </label>
       {% endfor %}
     </div>
+    {% elif problem.answer.choices %}
+    <div class="choices inline">
+      {% for opt in problem.answer.choices %}
+      <label class="choice pick">
+        <input type="radio" name="answer" value="{{ opt }}" required>
+        <span>{{ opt }}</span>
+      </label>
+      {% endfor %}
+    </div>
     {% else %}
     <input type="text" name="answer" inputmode="text" class="answer" autofocus>
     {% endif %}

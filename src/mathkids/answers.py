@@ -29,6 +29,13 @@ class Answer:
 
     answer_type: str = "abstract"
 
+    # Display options for click-to-answer questions. Empty => free-text input.
+    # When an answer has a small fixed set of valid responses (a comparator sign,
+    # prime/composite, a shape name), it lists them here so the UI renders pickable
+    # buttons instead of a text box. `choices` is presentation only; grade() is
+    # still the source of truth.
+    choices: tuple[str, ...] = ()
+
     def grade(self, raw: str) -> GradeResult:  # pragma: no cover - abstract
         raise NotImplementedError
 
@@ -151,6 +158,9 @@ _COMPARATOR_WORDS = {
 class ComparatorAnswer(Answer):
     value: str  # one of "<", "=", ">"
     answer_type: str = "comparator"
+    # Always the three signs, in a fixed teaching order (a plain class attribute,
+    # not a dataclass field). The kid taps one rather than typing the symbol.
+    choices = ("<", "=", ">")
 
     def grade(self, raw: str) -> GradeResult:
         s = (raw or "").strip().lower()
@@ -193,6 +203,7 @@ def _norm_word(s: str) -> str:
 class WordAnswer(Answer):
     value: str
     aliases: tuple[str, ...] = ()
+    choices: tuple[str, ...] = ()  # pickable options (correct word + distractors)
     answer_type: str = "word"
 
     def grade(self, raw: str) -> GradeResult:

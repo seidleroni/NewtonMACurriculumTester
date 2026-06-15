@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import random
 
-from mathkids.answers import IntegerAnswer, WordAnswer
-from mathkids.engine.base import Lesson, Problem, Skill, register
+from mathkids.answers import IntegerAnswer
+from mathkids.engine.base import Lesson, Problem, Skill, register, shuffled_word
 
 _NAMES = (
     "Ava", "Ben", "Cara", "Diego", "Emma", "Finn", "Grace", "Hugo",
@@ -73,16 +73,25 @@ class AddSubWordProblems(Skill):
                 )
                 kind = "start_unknown_sub"
         else:
-            # Two-step story problem, total stays within 100.
-            a = rng.randint(10, 40)
-            b = rng.randint(5, 100 - a)
-            c = rng.randint(1, a + b)
-            ans = a + b - c
-            prompt = (
-                f"{name} had {a} {item}. {name} found {b} more {item}, "
-                f"then used {c} {item}. How many {item} does {name} have now?"
-            )
-            kind = "two_step"
+            # One-step with the *change* unknown (one operation, full range to 100).
+            if rng.random() < 0.5:
+                start = rng.randint(10, 70)
+                total = rng.randint(start + 1, 100)
+                ans = total - start  # how many more were added
+                prompt = (
+                    f"{name} had {start} {item}. {name} got some more {item} and "
+                    f"now has {total} {item}. How many {item} did {name} get?"
+                )
+                kind = "change_unknown_add"
+            else:
+                start = rng.randint(20, 100)
+                left = rng.randint(0, start - 1)
+                ans = start - left  # how many were given away
+                prompt = (
+                    f"{name} had {start} {item} and now has {left} {item} left. "
+                    f"How many {item} did {name} give away?"
+                )
+                kind = "change_unknown_sub"
         return Problem(
             skill_id=self.id,
             level=level,
@@ -101,10 +110,10 @@ class AddSubWordProblems(Skill):
                 "Read the story and decide if things are coming together (add) or going "
                 "away (take away/subtract). Find the numbers, choose the operation, then "
                 "solve. If the missing number is the start, work backwards: undo the "
-                "change. Two-step problems: solve the first part, then use that answer in "
-                "the second part."
+                "change. If the missing number is the change (how many were added or taken "
+                "away), find the gap between the starting and ending amounts."
             ),
-            strategy="Decide add or subtract, then solve one step at a time.",
+            strategy="Decide add or subtract, then solve in one step.",
         )
 
     def hints(self, problem: Problem) -> list[str]:
@@ -120,8 +129,8 @@ class AddSubWordProblems(Skill):
                 "Work backwards: undo the change to get back to the start.",
             ]
         return [
-            "This is a two-step story — do the first change, then the second.",
-            "Add what was found, then subtract what was used.",
+            "The missing number is the change — how many were added or taken away.",
+            "Find the gap between the starting amount and the ending amount.",
         ]
 
     def worked_example(self, problem: Problem) -> str:
@@ -221,11 +230,12 @@ class OddEven(Skill):
         if level <= 1 or rng.random() < 0.6:
             n = rng.randint(1, 20)
             word = "even" if n % 2 == 0 else "odd"
+            other = "odd" if word == "even" else "even"
             return Problem(
                 skill_id=self.id,
                 level=level,
                 prompt=f"Is {n} odd or even?",
-                answer=WordAnswer(word),
+                answer=shuffled_word(rng, word, (other,)),
                 payload={"kind": "odd_even", "n": n},
             )
         # Doubles / halving variant: half of an even number.
