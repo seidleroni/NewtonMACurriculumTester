@@ -17,7 +17,6 @@ from mathkids.answers import (
     FractionAnswer,
     IntegerAnswer,
     MoneyAnswer,
-    TimeAnswer,
 )
 from mathkids.engine.base import Lesson, Problem, Skill, register
 
@@ -49,20 +48,24 @@ class UnitConversions(Skill):
     grade = 4
     domain = "Measurement & Data"
     title = "Unit conversions (larger to smaller)"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # Laddered by the size of the multiplier: x3 -> x12/x16 -> x60/x24 -> x100/x1000.
         if level <= 1:
-            keys = ("ft_in", "hr_min", "yd_ft", "day_hr")
-            qty = rng.randint(2, 6)
+            keys = ("yd_ft",)
+            qty = rng.randint(2, 5)
         elif level == 2:
-            keys = tuple(_CONVERSIONS)
-            qty = rng.randint(3, 9)
+            keys = ("yd_ft", "ft_in", "lb_oz")
+            qty = rng.randint(2, 8)
+        elif level == 3:
+            keys = ("hr_min", "min_sec", "day_hr")
+            qty = rng.randint(2, 9)
         else:
-            keys = tuple(_CONVERSIONS)
-            qty = rng.randint(5, 12)
+            keys = ("m_cm", "km_m", "kg_g", "L_mL")
+            qty = rng.randint(2, 12)
         key = rng.choice(keys)
         plural, singular, smaller, factor = _CONVERSIONS[key]
         unit_word = singular if qty == 1 else plural
@@ -121,140 +124,96 @@ class MeasurementWordProblems(Skill):
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        variant = rng.choice(("money", "time", "distance"))
-        if variant == "money":
-            return self._money(level, rng)
-        if variant == "time":
-            return self._time(level, rng)
-        return self._distance(level, rng)
-
-    def _money(self, level: int, rng: random.Random) -> Problem:
+        # Money change, one new demand per band: change from a dollar (no borrow past
+        # $1) -> change from a larger bill -> two-step (buy two items, then make change).
         if level <= 1:
             cost = rng.randint(20, 95)
-            paid = rng.choice((100, 200))
-        else:
+            paid = 100
+            change = paid - cost
+            prompt = (
+                f"A toy costs {MoneyAnswer.display_of(cost)}. You pay with "
+                f"{MoneyAnswer.display_of(paid)}. How much change do you get back?"
+            )
+            payload = {"variant": "change", "cost": cost, "paid": paid, "change": change}
+        elif level == 2:
             cost = rng.randint(105, 480)
             paid = rng.choice((500, 1000))
-        change = paid - cost
-        prompt = (
-            f"A toy costs {MoneyAnswer.display_of(cost)}. You pay with "
-            f"{MoneyAnswer.display_of(paid)}. How much change do you get back?"
-        )
+            change = paid - cost
+            prompt = (
+                f"A book costs {MoneyAnswer.display_of(cost)}. You pay with "
+                f"{MoneyAnswer.display_of(paid)}. How much change do you get back?"
+            )
+            payload = {"variant": "change", "cost": cost, "paid": paid, "change": change}
+        else:
+            item_a = rng.randint(75, 260)
+            item_b = rng.randint(75, 260)
+            subtotal = item_a + item_b
+            paid = 1000 if subtotal >= 500 else rng.choice((500, 1000))
+            change = paid - subtotal
+            prompt = (
+                f"A pen costs {MoneyAnswer.display_of(item_a)} and a notebook costs "
+                f"{MoneyAnswer.display_of(item_b)}. You pay with "
+                f"{MoneyAnswer.display_of(paid)}. How much change do you get back?"
+            )
+            payload = {
+                "variant": "two_step", "item_a": item_a, "item_b": item_b,
+                "paid": paid, "change": change,
+            }
         return Problem(
             skill_id=self.id,
             level=level,
             prompt=prompt,
             answer=MoneyAnswer(change),
-            payload={"variant": "money", "cost": cost, "paid": paid, "change": change},
-        )
-
-    def _time(self, level: int, rng: random.Random) -> Problem:
-        step = 5 if level <= 1 else 1
-        start_hour = rng.randint(1, 11)
-        start_minute = rng.choice(range(0, 60, step))
-        room = 59 - start_minute
-        if room < step:
-            start_minute = 0
-            room = 59
-        duration = rng.randint(1, room)
-        if step == 5:
-            duration = max(step, (duration // step) * step)
-        end_minute = start_minute + duration
-        prompt = (
-            f"Soccer practice starts at {start_hour}:{start_minute:02d} and lasts {duration} "
-            "minutes. What time does it end? (type it like H:MM)"
-        )
-        return Problem(
-            skill_id=self.id,
-            level=level,
-            prompt=prompt,
-            answer=TimeAnswer(start_hour, end_minute),
-            payload={
-                "variant": "time",
-                "start_hour": start_hour,
-                "start_minute": start_minute,
-                "duration": duration,
-                "end_minute": end_minute,
-            },
-        )
-
-    def _distance(self, level: int, rng: random.Random) -> Problem:
-        if level <= 1:
-            a, b = rng.randint(10, 50), rng.randint(10, 50)
-        else:
-            a, b = rng.randint(40, 250), rng.randint(40, 250)
-        total = a + b
-        prompt = (
-            f"A hiker walks {a} meters in the morning and {b} meters in the afternoon. "
-            "How many meters does the hiker walk in all? = ?"
-        )
-        return Problem(
-            skill_id=self.id,
-            level=level,
-            prompt=prompt,
-            answer=IntegerAnswer(total),
-            payload={"variant": "distance", "a": a, "b": b, "total": total},
+            payload=payload,
         )
 
     def invariant(self, problem: Problem) -> bool:
         p = problem.payload
-        if p["variant"] == "money":
-            ok = p["change"] == p["paid"] - p["cost"] and p["change"] >= 0
-        elif p["variant"] == "time":
-            ok = (
-                0 <= p["end_minute"] < 60
-                and p["end_minute"] == p["start_minute"] + p["duration"]
-                and p["duration"] >= 1
-            )
+        if p["variant"] == "two_step":
+            ok = p["change"] == p["paid"] - p["item_a"] - p["item_b"]
         else:
-            ok = p["total"] == p["a"] + p["b"]
-        return ok and super().invariant(problem)
+            ok = p["change"] == p["paid"] - p["cost"]
+        return ok and p["change"] >= 0 and super().invariant(problem)
 
     def lesson(self) -> Lesson:
         return Lesson(
             title=self.title,
             body=(
-                "Measurement word problems are one-step stories about money, time, or distance. "
-                "Change is what you paid minus the cost. An end time is the start time plus how "
-                "long something lasts. A total distance combines the parts by adding. Decide "
-                "which operation the story needs, then keep the right unit on your answer."
+                "Making change is a subtraction story: the change is the money you handed "
+                "over minus what it cost. When you buy more than one thing, first add the "
+                "costs to get the subtotal, then subtract that from the bill you paid. Keep "
+                "your answer in dollars and cents."
             ),
-            strategy="Pick the operation: change = subtract, end time = add minutes, total = add.",
+            strategy="Add the costs if there are several, then subtract from what you paid.",
         )
 
     def hints(self, problem: Problem) -> list[str]:
-        variant = problem.payload["variant"]
-        if variant == "money":
+        p = problem.payload
+        if p["variant"] == "two_step":
             return [
-                "Change is the money you handed over minus what it cost.",
-                "Subtract the cost from the amount you paid.",
-            ]
-        if variant == "time":
-            return [
-                "The hour stays the same — just add the minutes that pass.",
-                f"Add {problem.payload['duration']} minutes to "
-                f"{problem.payload['start_minute']}.",
+                f"First add the two prices: {MoneyAnswer.display_of(p['item_a'])} + "
+                f"{MoneyAnswer.display_of(p['item_b'])}.",
+                "Then subtract that subtotal from the money you paid.",
             ]
         return [
-            "Walking more adds to the distance.",
-            f"Add {problem.payload['a']} + {problem.payload['b']}.",
+            "Change is the money you handed over minus what it cost.",
+            "Subtract the cost from the amount you paid.",
         ]
 
     def worked_example(self, problem: Problem) -> str:
         p = problem.payload
-        if p["variant"] == "money":
+        if p["variant"] == "two_step":
+            subtotal = p["item_a"] + p["item_b"]
             return (
-                f"Change = paid - cost = {MoneyAnswer.display_of(p['paid'])} - "
-                f"{MoneyAnswer.display_of(p['cost'])} = "
-                f"{MoneyAnswer.display_of(p['change'])}."
+                f"Subtotal = {MoneyAnswer.display_of(p['item_a'])} + "
+                f"{MoneyAnswer.display_of(p['item_b'])} = {MoneyAnswer.display_of(subtotal)}. "
+                f"Change = {MoneyAnswer.display_of(p['paid'])} - "
+                f"{MoneyAnswer.display_of(subtotal)} = {MoneyAnswer.display_of(p['change'])}."
             )
-        if p["variant"] == "time":
-            return (
-                f"Start at {p['start_hour']}:{p['start_minute']:02d} and add {p['duration']} "
-                f"minutes: the minutes become {p['start_minute']} + {p['duration']} = "
-                f"{p['end_minute']}, so it ends at {p['start_hour']}:{p['end_minute']:02d}."
-            )
-        return f"Total distance = {p['a']} + {p['b']} = {p['total']} meters."
+        return (
+            f"Change = paid - cost = {MoneyAnswer.display_of(p['paid'])} - "
+            f"{MoneyAnswer.display_of(p['cost'])} = {MoneyAnswer.display_of(p['change'])}."
+        )
 
 
 class AreaPerimeter(Skill):
@@ -263,22 +222,26 @@ class AreaPerimeter(Skill):
     grade = 4
     domain = "Measurement & Data"
     title = "Area & perimeter of rectangles"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # area only -> add the perimeter formula (choice) -> add the inverse (unknown
+        # side) -> larger two-digit sides (multi-digit multiply / longer division).
         if level <= 1:
+            length, width, mode = rng.randint(2, 9), rng.randint(2, 9), "area"
+        elif level == 2:
             length = rng.randint(2, 9)
             width = rng.randint(2, 9)
             mode = rng.choice(("area", "perimeter"))
-        elif level == 2:
-            length = rng.randint(4, 15)
+        elif level == 3:
+            length = rng.randint(3, 12)
             width = rng.randint(3, 12)
             mode = rng.choice(("area", "perimeter", "unknown"))
         else:
-            length = rng.randint(6, 25)
-            width = rng.randint(4, 20)
+            length = rng.randint(10, 25)
+            width = rng.randint(6, 20)
             mode = rng.choice(("area", "perimeter", "unknown"))
         area = length * width
         perimeter = 2 * (length + width)
@@ -372,44 +335,51 @@ class LinePlotFractions(Skill):
     grade = 4
     domain = "Measurement & Data"
     title = "Line plots with fractions (read)"
-    max_level = 3
+    max_level = 4
     answer_type = "fraction"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # read the longest -> like-denominator difference (values <= 1) -> eighths with
+        # mixed numbers -> a difference across UNLIKE denominators (quarters and eighths).
         label, unit = rng.choice(_LINE_PLOT_LABELS)
-        if level <= 1:
-            denom = rng.choice((2, 4))
-            n_marks = 4
-        elif level == 2:
-            denom = rng.choice((4, 8))
-            n_marks = 5
+        if level >= 4:
+            # Guarantee the extremes have UNLIKE denominators: the shortest is a quarter
+            # and the longest is a true eighth, so the difference needs a common bottom.
+            lo = Fraction(rng.choice((1, 2)), 4)    # 1/4 or 1/2 (denominator 4 or 2)
+            hi = Fraction(rng.choice((13, 15)), 8)  # 13/8 or 15/8 (denominator 8), > 1 > lo
+            mid: set[Fraction] = set()
+            while len(mid) < 4:  # four more marks strictly between the extremes
+                d = rng.choice((4, 8))
+                v = Fraction(rng.randint(1, 2 * d), d)
+                if lo < v < hi:
+                    mid.add(v)
+            values = sorted({lo, hi} | mid)
+            mode = "difference"
         else:
-            denom = 8
-            n_marks = 6
-        # Distinct eighths/quarters/halves in lowest scale; values are k/denom for k>=1.
-        possible = list(range(1, denom * 2 + 1))  # numerators up to 2 (lengths up to 2 units)
-        numers = rng.sample(possible, n_marks)
-        values = sorted(Fraction(k, denom) for k in numers)
+            if level <= 1:
+                denom, n_marks, hi, mode = 4, 3, 4, "longest"
+            elif level == 2:
+                denom, n_marks, hi, mode = 4, 3, 4, "difference"
+            else:  # level 3: eighths, values up to 2
+                denom, n_marks, hi, mode = 8, 4, 16, "difference"
+            numers = rng.sample(range(1, hi + 1), n_marks)
+            values = sorted(Fraction(k, denom) for k in numers)
         diff = values[-1] - values[0]
         data = ", ".join(_frac_text(v) for v in values)
-        ask_diff = level >= 2 or rng.random() < 0.5
-        if ask_diff:
+        if mode == "difference":
             answer = FractionAnswer(diff)
             prompt = (
                 f"A line plot shows the lengths of {len(values)} {label} (in {unit}): "
                 f"{data}. What is the difference in length between the longest and the "
                 "shortest? = ?"
             )
-            mode = "difference"
         else:
-            longest = values[-1]
-            answer = FractionAnswer(longest)
+            answer = FractionAnswer(values[-1])
             prompt = (
                 f"A line plot shows the lengths of {len(values)} {label} (in {unit}): "
                 f"{data}. What is the length of the longest one? = ?"
             )
-            mode = "longest"
         return Problem(
             skill_id=self.id,
             level=level,
@@ -418,10 +388,10 @@ class LinePlotFractions(Skill):
             payload={
                 "label": label,
                 "unit": unit,
-                "denom": denom,
                 "shortest": _frac_text(values[0]),
                 "longest": _frac_text(values[-1]),
                 "mode": mode,
+                "unlike": values[0].denominator != values[-1].denominator,
             },
         )
 
@@ -443,6 +413,12 @@ class LinePlotFractions(Skill):
     def hints(self, problem: Problem) -> list[str]:
         p = problem.payload
         if p["mode"] == "difference":
+            if p.get("unlike"):
+                return [
+                    "First spot the longest and the shortest measurement.",
+                    f"The bottoms are different, so rename to a common bottom (e.g. eighths) "
+                    f"before subtracting {p['longest']} - {p['shortest']}.",
+                ]
             return [
                 "First spot the longest and the shortest measurement in the list.",
                 f"Subtract {p['longest']} - {p['shortest']}; the bottoms match, so work the tops.",
@@ -469,27 +445,18 @@ class AngleFractionsOfCircle(Skill):
     domain = "Measurement & Data"
     title = "Angles as fractions of a circle"
     max_level = 3
-    answer_type = "integer"
+    answer_type = "fraction"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        # Variant A: an angle that turns through n one-degree angles measures n degrees.
-        # Variant B: what fraction of a full circle is a D-degree angle? -> D/360.
-        nice = (30, 45, 60, 90, 120, 135, 180, 270, 360) if level >= 2 else (45, 90, 180, 360)
-        if rng.random() < 0.5:
-            n = rng.randint(5, 175) if level >= 3 else rng.choice(nice)
-            prompt = (
-                f"An angle turns through {n} one-degree angles. "
-                "How many degrees does it measure? = ?"
-            )
-            return Problem(
-                skill_id=self.id,
-                level=level,
-                prompt=prompt,
-                answer=IntegerAnswer(n),
-                payload={"variant": "count", "n": n},
-            )
-        degrees = rng.choice(nice)
+        # A D-degree angle is D/360 of a circle. Laddered by how hard D/360 is to
+        # simplify: easy unit fractions -> other simple fractions -> non-obvious ones.
+        if level <= 1:
+            degrees = rng.choice((90, 180))       # -> 1/4, 1/2
+        elif level == 2:
+            degrees = rng.choice((60, 120, 270))  # -> 1/6, 1/3, 3/4
+        else:
+            degrees = rng.choice((30, 45, 135, 150))  # -> 1/12, 1/8, 3/8, 5/12
         value = Fraction(degrees, 360)
         prompt = (
             f"What fraction of a full circle (360°) is a {degrees}° angle? "
@@ -505,31 +472,23 @@ class AngleFractionsOfCircle(Skill):
 
     def invariant(self, problem: Problem) -> bool:
         p = problem.payload
-        if p["variant"] == "count":
-            ok = problem.answer.value == p["n"] and 1 <= p["n"] <= 360
-        else:
-            ok = problem.answer.value == Fraction(p["degrees"], 360)
-        return ok and super().invariant(problem)
+        return (
+            problem.answer.value == Fraction(p["degrees"], 360) and super().invariant(problem)
+        )
 
     def lesson(self) -> Lesson:
         return Lesson(
             title=self.title,
             body=(
-                "A full circle is 360 degrees. A one-degree angle is 1/360 of the circle, so an "
-                "angle that turns through n of those one-degree angles measures n degrees. Going "
-                "the other way, a D-degree angle is D out of 360 of the circle, which is the "
-                "fraction D/360 (simplified). A right angle of 90° is 90/360 = 1/4 of a circle."
+                "A full circle is 360 degrees. A D-degree angle is D out of 360 of the circle, "
+                "which is the fraction D/360 — then simplify. A right angle of 90° is "
+                "90/360 = 1/4 of a circle; a 60° angle is 60/360 = 1/6 of a circle."
             ),
-            strategy="n one-degree turns = n degrees; a D° angle is the fraction D/360 of a turn.",
+            strategy="Put the angle over 360, then simplify: a D° angle is D/360 of a turn.",
         )
 
     def hints(self, problem: Problem) -> list[str]:
         p = problem.payload
-        if p["variant"] == "count":
-            return [
-                "Each one-degree angle adds exactly 1 degree.",
-                f"So {p['n']} one-degree angles measure {p['n']} degrees.",
-            ]
         return [
             "A full circle is 360 degrees, so put the angle over 360.",
             f"Write {p['degrees']}/360, then simplify.",
@@ -537,10 +496,6 @@ class AngleFractionsOfCircle(Skill):
 
     def worked_example(self, problem: Problem) -> str:
         p = problem.payload
-        if p["variant"] == "count":
-            return (
-                f"Each one-degree angle is 1°, so {p['n']} of them measure {p['n']}°."
-            )
         return (
             f"A full circle is 360°, so a {p['degrees']}° angle is {p['degrees']}/360 = "
             f"{problem.answer.display} of the circle."
@@ -553,20 +508,15 @@ class UnknownAngle(Skill):
     grade = 4
     domain = "Measurement & Data"
     title = "Angle addition (find unknown angle)"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        if level <= 1:
-            whole = rng.choice((90, 180))
-            part = rng.randint(10, whole - 10)
-        elif level == 2:
-            whole = rng.choice((90, 180, 360))
-            part = rng.randint(15, whole - 15)
-        else:
+        # right-angle two-part split -> straight angle -> full turn -> three-part (the
+        # only level that needs adding the two known parts before subtracting).
+        if level == 4:
             whole = rng.choice((180, 360))
-            # Split into two known parts plus an unknown third part.
             p1 = rng.randint(20, whole // 2 - 10)
             p2 = rng.randint(20, whole - p1 - 10)
             missing = whole - p1 - p2
@@ -581,6 +531,12 @@ class UnknownAngle(Skill):
                 answer=IntegerAnswer(missing),
                 payload={"whole": whole, "parts": (p1, p2), "missing": missing},
             )
+        if level <= 1:
+            whole, part = 90, rng.randint(10, 80)
+        elif level == 2:
+            whole, part = 180, rng.randint(15, 165)
+        else:
+            whole, part = 360, rng.randint(20, 340)
         missing = whole - part
         prompt = (
             f"A {whole}° angle is split into two parts. One part is {part}°. "
@@ -655,15 +611,17 @@ class ReadProtractor(Skill):
     grade = 4
     domain = "Measurement & Data"
     title = "Read a protractor"
-    max_level = 2
+    max_level = 3
     answer_type = "integer"
     phase = 3
 
     def generate(self, level: int, rng: random.Random) -> Problem:
         if level <= 1:
-            angle = rng.randrange(20, 161, 10)  # lands exactly on a labeled-or-major tick
+            angle = rng.randrange(20, 91, 10)   # acute, on a labeled tens tick
+        elif level == 2:
+            angle = rng.randrange(20, 161, 10)  # adds obtuse, still on tens
         else:
-            angle = rng.randrange(15, 166, 5)  # may land between the marked tens
+            angle = rng.randrange(15, 166, 5)   # may land between the marked tens (+5)
         prompt = (
             "One ray of the angle points at 0° on the right. Read the scale where the "
             "slanted ray crosses it: how many degrees is this angle?"

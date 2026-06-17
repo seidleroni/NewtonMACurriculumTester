@@ -44,67 +44,61 @@ class DigitTenTimes(Skill):
     grade = 4
     domain = "Number & Operations in Base Ten"
     title = "Digit is 10x the place to its right"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        # How many digits / how big a place value to reach into.
-        if level <= 1:
-            places = (1, 10, 100)
-        elif level == 2:
-            places = (10, 100, 1000)
-        else:
-            places = (100, 1000, 10000, 100000)
+        # Forward "value of a digit" first (3-digit floor, then 4-digit), then the
+        # backward "ten times as much" reasoning, then both at the full range.
         digit = rng.randint(1, 9)
-
+        if level <= 1:
+            return self._value(rng, level, digit, (1, 10, 100), 100)
+        if level == 2:
+            return self._value(rng, level, digit, (1, 10, 100, 1000), 1000)
+        if level == 3:
+            return self._ten_times(rng, level, digit, (10, 100, 1000))
         if rng.random() < 0.5:
-            # "What is the value of the 6 in 6,250?" -> 6000
-            place = rng.choice(places)
-            others = self._wrap_digit(place, digit, rng)
-            value = digit * place
-            prompt = (
-                f"What is the value of the {digit} in {_group(others)}?"
-            )
-            payload = {"kind": "value", "digit": digit, "place": place, "n": others}
-        else:
-            # "The 7 in the tens place is 10 times the 7 in which place?" -> ones
-            # Asked numerically: value of the same digit one place to the right.
-            # Only choose places that have a real place to their right (>= tens).
-            place = rng.choice([p for p in places if p >= 10])
-            right_place = place // 10
-            value = digit * right_place
-            prompt = (
-                f"The {digit} in the {_PLACE_NAMES[place]} place is 10 times "
-                f"{'an' if digit == 8 else 'a'} {digit} "
-                f"in the {_PLACE_NAMES[right_place]} place. "
-                f"What is the value of that {digit} in the "
-                f"{_PLACE_NAMES[right_place]} place?"
-            )
-            payload = {
-                "kind": "ten_times",
-                "digit": digit,
-                "place": place,
-                "right_place": right_place,
-            }
+            return self._value(rng, level, digit, (100, 1000, 10000, 100000), 100000)
+        return self._ten_times(rng, level, digit, (100, 1000, 10000, 100000))
+
+    def _value(self, rng, level, digit, places, top) -> Problem:
+        place = rng.choice(places)
+        n = self._build(rng, digit, place, top)
+        return Problem(
+            skill_id=self.id,
+            level=level,
+            prompt=f"What is the value of the {digit} in {_group(n)}?",
+            answer=IntegerAnswer(digit * place),
+            payload={"kind": "value", "digit": digit, "place": place, "n": n},
+        )
+
+    def _ten_times(self, rng, level, digit, places) -> Problem:
+        place = rng.choice(places)
+        right_place = place // 10
+        prompt = (
+            f"The {digit} in the {_PLACE_NAMES[place]} place is 10 times "
+            f"{'an' if digit == 8 else 'a'} {digit} in the {_PLACE_NAMES[right_place]} place. "
+            f"What is the value of that {digit} in the {_PLACE_NAMES[right_place]} place?"
+        )
         return Problem(
             skill_id=self.id,
             level=level,
             prompt=prompt,
-            answer=IntegerAnswer(value),
-            payload=payload,
+            answer=IntegerAnswer(digit * right_place),
+            payload={"kind": "ten_times", "digit": digit, "place": place, "right_place": right_place},
         )
 
     @staticmethod
-    def _wrap_digit(place: int, digit: int, rng: random.Random) -> int:
-        """Build a number whose digit at `place` is exactly `digit` (and unique)."""
+    def _build(rng: random.Random, digit: int, place: int, top: int) -> int:
+        """A number from `top` place down to ones with `digit` at `place` (and nowhere
+        else, so it's unambiguous) and a non-zero leading digit."""
         n = digit * place
-        # Fill the lower places with digits that are never equal to `digit`,
-        # so the prompt is unambiguous about which `digit` is meant.
-        p = place // 10
+        p = top
         while p >= 1:
-            choices = [d for d in range(0, 10) if d != digit]
-            n += rng.choice(choices) * p
+            if p != place:
+                lo = 1 if p == top else 0
+                n += rng.choice([d for d in range(lo, 10) if d != digit]) * p
             p //= 10
         return n
 
@@ -160,52 +154,41 @@ class ReadWriteCompare(Skill):
     grade = 4
     domain = "Number & Operations in Base Ten"
     title = "Read/write/compare to 1,000,000"
-    max_level = 3
+    max_level = 4
     answer_type = "comparator"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        hi = {1: 9999, 2: 99999}.get(level, 999999)
-        lo = {1: 1000, 2: 10000}.get(level, 100000)
+        # Comparison first (small, then large), then the expanded-form representation
+        # (3-4 digit hiding the smallest place, then 5-6 digit hiding any place).
+        if level <= 1:
+            return self._compare(rng, level, 100, 999)
+        if level == 2:
+            return self._compare(rng, level, 1000, 999999)
+        if level == 3:
+            return self._expanded(rng, level, rng.randint(1000, 9999), hide_smallest=True)
+        return self._expanded(rng, level, rng.randint(10000, 999999), hide_smallest=False)
 
-        if rng.random() < 0.5:
-            # Compare two numbers -> ComparatorAnswer
-            a = rng.randint(lo, hi)
-            b = rng.randint(lo, hi)
-            sign = "<" if a < b else (">" if a > b else "=")
-            prompt = (
-                f"Compare these numbers. Write <, =, or >:  "
-                f"{_group(a)} ___ {_group(b)}"
-            )
-            return Problem(
-                skill_id=self.id,
-                level=level,
-                prompt=prompt,
-                answer=ComparatorAnswer(sign),
-                payload={"kind": "compare", "a": a, "b": b},
-            )
-
-        # Expanded-form fill -> IntegerAnswer
-        n = rng.randint(lo, hi)
-        parts = self._expanded_parts(n)
-        # Hide one nonzero part and ask for its value.
-        nonzero = [p for p in parts if p > 0]
-        hidden = rng.choice(nonzero)
-        shown = [p for p in parts if p != hidden] or [0]
-        # If the hidden value repeats (e.g. 5,005), only drop one occurrence.
-        if shown == [p for p in parts if p > 0]:
-            shown = list(parts)
-            shown.remove(hidden)
-            shown = [p for p in shown if p > 0] or [0]
-        expr = " + ".join(_group(p) for p in shown)
-        prompt = (
-            f"Fill in the missing part of the expanded form:  "
-            f"{expr} + ___ = {_group(n)}"
-        )
+    def _compare(self, rng, level, lo, hi) -> Problem:
+        a = rng.randint(lo, hi)
+        b = a if rng.random() < 1 / 6 else rng.randint(lo, hi)  # keep "=" reachable
+        sign = "<" if a < b else (">" if a > b else "=")
         return Problem(
             skill_id=self.id,
             level=level,
-            prompt=prompt,
+            prompt=f"Compare these numbers. Write <, =, or >:  {_group(a)} ___ {_group(b)}",
+            answer=ComparatorAnswer(sign),
+            payload={"kind": "compare", "a": a, "b": b},
+        )
+
+    def _expanded(self, rng, level, n, hide_smallest) -> Problem:
+        parts = sorted(self._expanded_parts(n), reverse=True)  # nonzero parts, descending
+        hidden = parts[-1] if hide_smallest else rng.choice(parts)
+        expr = " + ".join("___" if p == hidden else _group(p) for p in parts)
+        return Problem(
+            skill_id=self.id,
+            level=level,
+            prompt=f"Fill in the missing part of the expanded form:  {expr} = {_group(n)}",
             answer=IntegerAnswer(hidden),
             payload={"kind": "expanded", "n": n, "hidden": hidden},
         )
@@ -277,20 +260,25 @@ class RoundToAnyPlace(Skill):
     grade = 4
     domain = "Number & Operations in Base Ten"
     title = "Round to any place"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        if level <= 1:
+        if level <= 1:  # gentle floor: nearest ten, no ties
+            place = 10
+            n = rng.randint(20, 999)
+            while n % 10 == 5:
+                n = rng.randint(20, 999)
+        elif level == 2:  # nearest hundred
+            place = 100
             n = rng.randint(100, 9999)
-            place = rng.choice((10, 100))
-        elif level == 2:
+        elif level == 3:  # mixed small places, larger numbers
             n = rng.randint(1000, 99999)
             place = rng.choice((10, 100, 1000))
-        else:
+        else:  # the big target places only (no trivial nearest-ten on a 6-digit number)
             n = rng.randint(10000, 999999)
-            place = rng.choice((10, 100, 1000, 10000, 100000))
+            place = rng.choice((1000, 10000, 100000))
         ans = _round_to(n, place)
         place_word = {
             10: "ten",
@@ -353,28 +341,33 @@ class AddSubToMillion(Skill):
     grade = 4
     domain = "Number & Operations in Base Ten"
     title = "Add & subtract to 1,000,000"
-    max_level = 3
+    max_level = 5
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # no-carry add -> carry add -> no-borrow subtract -> borrow subtract ->
+        # operation choice at the full range. Each rung adds one new demand.
         if level <= 1:
-            a = rng.randint(1000, 9000)
-            b = rng.randint(100, 9999 - a) if a < 9999 else rng.randint(100, 999)
+            a, b = self._no_carry_add(rng, (100, 10, 1))
             op, ans = "+", a + b
         elif level == 2:
-            a = rng.randint(10000, 99999)
+            a, b = self._carry_add(rng, (1000, 100, 10, 1))
+            op, ans = "+", a + b
+        elif level == 3:
+            a, b = self._no_borrow_sub(rng, (1000, 100, 10, 1))
+            op, ans = "-", a - b
+        elif level == 4:
+            a, b = self._borrow_sub(rng, (10000, 1000, 100, 10, 1))
+            op, ans = "-", a - b
+        elif rng.random() < 0.5:
+            a = rng.randint(100000, 800000)
+            b = rng.randint(1000, 1000000 - a)
+            op, ans = "+", a + b
+        else:
+            a = rng.randint(200000, 999999)
             b = rng.randint(1000, a)
             op, ans = "-", a - b
-        else:
-            if rng.random() < 0.5:
-                a = rng.randint(100000, 800000)
-                b = rng.randint(1000, 1000000 - a)
-                op, ans = "+", a + b
-            else:
-                a = rng.randint(200000, 999999)
-                b = rng.randint(1000, a)
-                op, ans = "-", a - b
         return Problem(
             skill_id=self.id,
             level=level,
@@ -386,6 +379,69 @@ class AddSubToMillion(Skill):
     def invariant(self, problem: Problem) -> bool:
         ans = problem.answer.value
         return 0 <= ans <= 1000000 and super().invariant(problem)
+
+    @staticmethod
+    def _no_carry_add(rng: random.Random, places: tuple[int, ...]) -> tuple[int, int]:
+        """Two addends (both leading-non-zero) whose every column sums to <= 9."""
+        a = b = 0
+        for i, place in enumerate(places):
+            leading = i == 0
+            ad = rng.randint(1, 8) if leading else rng.randint(0, 9)
+            bd = rng.randint(1, 9 - ad) if leading else rng.randint(0, 9 - ad)
+            a += ad * place
+            b += bd * place
+        return a, b
+
+    @staticmethod
+    def _no_borrow_sub(rng: random.Random, places: tuple[int, ...]) -> tuple[int, int]:
+        """Minuend > subtrahend with every minuend column >= its subtrahend column."""
+        a = b = 0
+        for i, place in enumerate(places):
+            if i == 0:  # leading: minuend strictly greater -> a > b, both proper
+                bd = rng.randint(1, 7)
+                ad = rng.randint(bd + 1, 9)
+            else:
+                ad = rng.randint(0, 9)
+                bd = rng.randint(0, ad)
+            a += ad * place
+            b += bd * place
+        return a, b
+
+    @staticmethod
+    def _carry_add(rng: random.Random, places: tuple[int, ...]) -> tuple[int, int]:
+        """Two addends (leading non-zero) with a FORCED carry: the ones column sums >= 10."""
+        a = b = 0
+        last = len(places) - 1
+        for i, place in enumerate(places):
+            if i == last:  # ones column: force a carry
+                ad = rng.randint(1, 9)
+                bd = rng.randint(10 - ad, 9)
+            elif i == 0:  # leading: both non-zero
+                ad, bd = rng.randint(1, 9), rng.randint(1, 9)
+            else:
+                ad, bd = rng.randint(0, 9), rng.randint(0, 9)
+            a += ad * place
+            b += bd * place
+        return a, b
+
+    @staticmethod
+    def _borrow_sub(rng: random.Random, places: tuple[int, ...]) -> tuple[int, int]:
+        """Minuend > subtrahend with a FORCED borrow: subtrahend's ones digit exceeds
+        the minuend's, while the leading minuend digit is strictly greater so a > b."""
+        a = b = 0
+        last = len(places) - 1
+        for i, place in enumerate(places):
+            if i == 0:  # leading: minuend strictly greater -> a > b
+                bd = rng.randint(1, 7)
+                ad = rng.randint(bd + 1, 9)
+            elif i == last:  # ones: subtrahend strictly greater -> forced borrow
+                ad = rng.randint(0, 8)
+                bd = rng.randint(ad + 1, 9)
+            else:
+                ad, bd = rng.randint(0, 9), rng.randint(0, 9)
+            a += ad * place
+            b += bd * place
+        return a, b
 
     def lesson(self) -> Lesson:
         return Lesson(
@@ -429,15 +485,19 @@ class MultiplyMultiDigit(Skill):
     grade = 4
     domain = "Number & Operations in Base Ten"
     title = "Multi-digit multiplication"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # 2-digit x small 1-digit -> 2-digit x full 1-digit -> 3-digit x 1-digit ->
+        # the new two-partial-product method (2-digit x 2-digit).
         if level <= 1:
-            a, b = rng.randint(10, 99), rng.randint(2, 9)
+            a, b = rng.randint(10, 99), rng.randint(2, 5)
         elif level == 2:
-            a, b = rng.randint(100, 9999), rng.randint(2, 9)
+            a, b = rng.randint(10, 99), rng.randint(2, 9)
+        elif level == 3:
+            a, b = rng.randint(100, 999), rng.randint(2, 9)
         else:
             a, b = rng.randint(11, 99), rng.randint(11, 99)
         return Problem(
@@ -498,18 +558,22 @@ class DivideFourByOne(Skill):
     grade = 4
     domain = "Number & Operations in Base Ten"
     title = "Divide 4-digit by 1-digit (quotient & remainder)"
-    max_level = 3
+    max_level = 4
     answer_type = "quotient_remainder"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        if level <= 1:
-            dividend = rng.randint(20, 99)
-        elif level == 2:
-            dividend = rng.randint(100, 999)
+        if level <= 1:  # gentle floor: 2-digit dividend that divides evenly (no remainder)
+            divisor = rng.randint(2, 9)
+            dividend = divisor * rng.randint(2, 9)
         else:
-            dividend = rng.randint(1000, 9999)
-        divisor = rng.randint(2, 9)
+            if level == 2:
+                dividend = rng.randint(20, 99)
+            elif level == 3:
+                dividend = rng.randint(100, 999)
+            else:
+                dividend = rng.randint(1000, 9999)
+            divisor = rng.randint(2, 9)
         quotient, remainder = divmod(dividend, divisor)
         return Problem(
             skill_id=self.id,

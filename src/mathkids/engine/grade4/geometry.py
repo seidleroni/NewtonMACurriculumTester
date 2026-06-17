@@ -37,17 +37,20 @@ class LinesOfSymmetryCount(Skill):
     grade = 4
     domain = "Geometry"
     title = "Lines of symmetry (count)"
-    max_level = 2
+    max_level = 3
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        # Level 1 keeps to shapes whose symmetry lines match their side/equal-side
-        # count or are easy to picture; level 2 opens up to every listed shape.
+        # Disjoint sets ordered by fold-count and familiarity, so an easy shape never
+        # recurs at a harder level: 1-2 lines -> 3-4 (count diagonals) -> 5-6 (n equal
+        # sides -> n lines).
         if level <= 1:
-            shapes = ("square", "rectangle", "equilateral triangle", "isosceles triangle")
+            shapes = ("isosceles triangle", "rectangle")
+        elif level == 2:
+            shapes = ("equilateral triangle", "square")
         else:
-            shapes = tuple(_SYMMETRY_LINES)
+            shapes = ("regular pentagon", "regular hexagon")
         shape = rng.choice(shapes)
         lines = _SYMMETRY_LINES[shape]
         prompt = f"How many lines of symmetry does {_article(shape)} {shape} have? = ?"
@@ -133,11 +136,13 @@ class LinesRaysAngles(Skill):
     grade = 4
     domain = "Geometry"
     title = "Lines, rays & angles"
-    max_level = 2
+    max_level = 3
     answer_type = "multiple_choice"
     phase = 3
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # One concept per band: name a basic figure -> classify a single angle ->
+        # relate two lines (the most abstract, with the closest distractor pair).
         if level <= 1:
             fig = rng.choice(tuple(_FIGURE_OPTIONS))
             correct = _FIGURE_OPTIONS[fig]
@@ -145,7 +150,7 @@ class LinesRaysAngles(Skill):
             prompt = "What does this figure show?"
             image = {"kind": "figure", "figure": fig}
             payload = {"variant": "figure", "figure": fig, "image": image}
-        elif rng.random() < 0.5:
+        elif level == 2:
             cls = rng.choice(("acute", "right", "obtuse"))
             degrees = {
                 "acute": rng.choice(_ACUTE_DEGREES),
@@ -306,12 +311,21 @@ class ClassifyShapes(Skill):
     grade = 4
     domain = "Geometry"
     title = "Classify shapes"
-    max_level = 2
+    max_level = 4
     answer_type = "multiple_choice"
     phase = 3
 
+    # One concept per band: triangles by corner -> triangles by side -> cued
+    # quadrilaterals (a single visible feature) -> the confusable no-right-angle quads.
+    _LEVEL_SHAPES = {
+        1: ("right_triangle", "acute_triangle", "obtuse_triangle"),
+        2: ("equilateral", "isosceles", "scalene"),
+        3: ("square", "rectangle", "trapezoid"),
+        4: ("rhombus", "parallelogram"),
+    }
+
     def generate(self, level: int, rng: random.Random) -> Problem:
-        names = [n for n, card in _SHAPE_CARDS.items() if card[0] == min(level, 2)]
+        names = self._LEVEL_SHAPES.get(level, self._LEVEL_SHAPES[4])
         name = names[rng.randrange(len(names))]
         _, prompt, points, ticks, right_marks, correct, distractors = _SHAPE_CARDS[name]
         image = {"kind": "polygon", "points": points}

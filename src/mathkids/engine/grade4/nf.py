@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import random
 from fractions import Fraction
+from math import gcd
 
 from mathkids.answers import (
     ComparatorAnswer,
@@ -44,23 +45,28 @@ class EquivalentFractions(Skill):
     grade = 4
     domain = "Number & Operations—Fractions"
     title = "Equivalent fractions"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
         # Pick a base fraction a/b, then a bigger denominator that is a whole
-        # multiple of b so the equivalent numerator is a whole number.
+        # multiple of b so the equivalent numerator is a whole number. The floor is a
+        # unit fraction (a=1) with a familiar denominator and the smallest doubling.
         if level <= 1:
-            b = rng.choice((2, 3, 4, 5))
-            mult = rng.randint(2, 3)
+            b, a, mult = rng.choice((2, 4)), 1, 2
         elif level == 2:
+            b = rng.choice((2, 3, 4, 5))
+            a = rng.randint(1, b - 1)
+            mult = rng.randint(2, 3)
+        elif level == 3:
             b = rng.choice((2, 3, 4, 5, 6))
-            mult = rng.randint(2, 4)
+            a = rng.randint(1, b - 1)
+            mult = rng.randint(2, 5)
         else:
             b = rng.choice(_EQUIV_DENOMS)
+            a = rng.randint(1, b - 1)
             mult = rng.randint(2, 5)
-        a = rng.randint(1, b - 1)
         big = b * mult
         num = a * mult
         prompt = f"Fill in the missing number: {a}/{b} = ?/{big}"
@@ -112,24 +118,32 @@ class CompareUnlikeFractions(Skill):
     grade = 4
     domain = "Number & Operations—Fractions"
     title = "Compare unlike fractions"
-    max_level = 3
+    max_level = 4
     answer_type = "comparator"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # Build up the comparison strategy: same denominator (compare tops) -> same
+        # numerator (bigger bottom = smaller piece) -> full cross-multiply (familiar
+        # denominators) -> cross-multiply with larger/less-common denominators.
         if level <= 1:
-            denoms = (2, 3, 4, 5, 6)
+            d = rng.choice((3, 4, 6))  # need >= 2 distinct numerators (so not halves)
+            n1 = rng.randint(1, d - 1)
+            n2 = rng.randint(1, d - 1)
+            while n2 == n1:  # strict inequality, no "=" at the floor
+                n2 = rng.randint(1, d - 1)
+            d1 = d2 = d
         elif level == 2:
-            denoms = (2, 3, 4, 5, 6, 8)
+            d1, d2 = rng.sample((2, 3, 4, 5, 6), 2)
+            n1 = n2 = rng.randint(1, min(d1, d2) - 1)  # same top, different bottom
         else:
-            denoms = _EQUIV_DENOMS
-        # Different numerator AND different denominator for both fractions.
-        while True:
-            d1, d2 = rng.sample(denoms, 2)
-            n1 = rng.randint(1, d1 - 1)
-            n2 = rng.randint(1, d2 - 1)
-            if n1 != n2:
-                break
+            denoms = (2, 3, 4, 5, 6) if level == 3 else _EQUIV_DENOMS
+            while True:  # different numerator AND denominator -> cross-multiply
+                d1, d2 = rng.sample(denoms, 2)
+                n1 = rng.randint(1, d1 - 1)
+                n2 = rng.randint(1, d2 - 1)
+                if n1 != n2:
+                    break
         f1, f2 = Fraction(n1, d1), Fraction(n2, d2)
         sym = _compare_symbol(f1, f2)
         left, right = f"{n1}/{d1}", f"{n2}/{d2}"
@@ -193,26 +207,51 @@ class AddSubFractions(Skill):
     grade = 4
     domain = "Number & Operations—Fractions"
     title = "Add & subtract fractions (like denominators)"
-    max_level = 3
+    max_level = 4
     answer_type = "fraction"
     phase = 1
 
     def generate(self, level, rng):
-        d = rng.choice((2, 3, 4, 5, 6, 8))
-        if level <= 1 and (d == 2 or rng.random() < 0.5):
-            a = rng.randint(1, d - 1)
-            b = rng.randint(1, d - a)
+        # proper addition (stays < 1) -> subtraction -> addition that crosses 1
+        # (improper/mixed) -> mixed add/subtract with the full denominator set.
+        if level <= 1:
+            d = rng.choice((3, 4, 6))
+            while True:  # proper sum that does not reduce, so "keep the bottom" matches
+                a = rng.randint(1, d - 2)
+                b = rng.randint(1, d - 1 - a)
+                if gcd(a + b, d) == 1:
+                    break
             value = Fraction(a + b, d)
             prompt = f"{a}/{d} + {b}/{d} = ?"
-        elif level <= 1:
+        elif level == 2:
+            d = rng.choice((3, 4, 5, 6))
             a = rng.randint(2, d - 1)
             b = rng.randint(1, a - 1)
             value = Fraction(a - b, d)
             prompt = f"{a}/{d} - {b}/{d} = ?"
-        else:
-            a, b = rng.randint(1, d - 1), rng.randint(1, d - 1)
+        elif level == 3:
+            d = rng.choice((2, 3, 4, 5, 6, 8))
+            while True:  # force the sum to reach or cross 1
+                a = rng.randint(1, d - 1)
+                b = rng.randint(1, d - 1)
+                if a + b >= d:
+                    break
             value = Fraction(a + b, d)
             prompt = f"{a}/{d} + {b}/{d} = ?"
+        elif rng.random() < 0.5:
+            d = rng.choice((2, 3, 4, 5, 6, 8))
+            while True:  # keep the add branch at/above L3 (sum reaches or crosses 1)
+                a, b = rng.randint(1, d - 1), rng.randint(1, d - 1)
+                if a + b >= d:
+                    break
+            value = Fraction(a + b, d)
+            prompt = f"{a}/{d} + {b}/{d} = ?"
+        else:
+            d = rng.choice((3, 4, 5, 6, 8))  # subtraction needs a >= 2, so d >= 3
+            a = rng.randint(2, d - 1)
+            b = rng.randint(1, a - 1)
+            value = Fraction(a - b, d)
+            prompt = f"{a}/{d} - {b}/{d} = ?"
         return Problem(
             skill_id=self.id,
             level=level,
@@ -250,21 +289,34 @@ class FractionTimesWhole(Skill):
     grade = 4
     domain = "Number & Operations—Fractions"
     title = "Fraction × whole number"
-    max_level = 3
+    max_level = 5
     answer_type = "fraction"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # unit fraction landing on a whole number -> unit fraction crossing 1
+        # (improper) -> non-unit numerators -> larger wholes -> largest.
         if level <= 1:
             d = rng.choice((2, 3, 4))
-            n = rng.randint(2, 4)
+            a, n = 1, d  # n × 1/d = 1, a clean whole number
         elif level == 2:
+            d = rng.choice((2, 3, 4, 5, 6))
+            a = 1
+            n = rng.randint(2, 9)
+            while n % d == 0:  # not a multiple of d -> a real improper result
+                n = rng.randint(2, 9)
+        elif level == 3:
+            d = rng.choice((2, 3, 4, 5, 6))
+            a = rng.randint(1, d - 1)
+            n = rng.randint(2, 4)
+        elif level == 4:
             d = rng.choice(_FRACTION_DENOMS)
+            a = rng.randint(1, d - 1)
             n = rng.randint(2, 6)
         else:
             d = rng.choice(_FRACTION_DENOMS)
+            a = rng.randint(1, d - 1)
             n = rng.randint(3, 9)
-        a = rng.randint(1, d - 1)  # proper fraction a/d
         value = Fraction(n) * Fraction(a, d)
         prompt = f"{n} × {a}/{d} = ?"
         return Problem(
@@ -320,24 +372,35 @@ class AddTenthsHundredths(Skill):
     grade = 4
     domain = "Number & Operations—Fractions"
     title = "Add tenths & hundredths"
-    max_level = 3
+    max_level = 4
     answer_type = "fraction"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # tenths + tenths (y a multiple of 10, eases the rename) -> single-digit
+        # hundredths -> two-digit hundredths still under 1 -> a sum that crosses 1.
         if level <= 1:
+            x = rng.randint(1, 4)
+            y = rng.choice((10, 20, 30, 40, 50))  # 10x+y <= 90 < 100
+        elif level == 2:
             x = rng.randint(1, 5)
             y = rng.randint(1, 9)
-        elif level == 2:
-            x = rng.randint(1, 9)
-            y = rng.randint(1, 9)
+        elif level == 3:
+            x = rng.randint(1, 8)
+            y = rng.randint(10, 90)
+            while 10 * x + y >= 100:  # keep the sum below 1
+                x = rng.randint(1, 8)
+                y = rng.randint(10, 90)
         else:
             x = rng.randint(1, 9)
             y = rng.randint(10, 90)
+            while 10 * x + y < 100:  # force the sum to cross 1
+                x = rng.randint(1, 9)
+                y = rng.randint(10, 90)
         hundredths = 10 * x + y
         value = Fraction(hundredths, 100)
         prompt = (
-            f"Rewrite {x}/10 as hundredths and add: {x}/10 + {y}/100 = ?/100 "
+            f"Rewrite {x}/10 as hundredths and add: {x}/10 + {y}/100 = ? "
             f"(write your answer as a fraction)"
         )
         return Problem(
@@ -394,18 +457,16 @@ class DecimalNotation(Skill):
     grade = 4
     domain = "Number & Operations—Fractions"
     title = "Decimal notation for fractions"
-    max_level = 3
+    max_level = 4
     answer_type = "decimal"
     phase = 1
 
-    def _to_decimal(self, level: int, rng: random.Random) -> Problem:
+    def _to_decimal(self, level: int, den: int, rng: random.Random) -> Problem:
         # "Write n/10 (or n/100) as a decimal."
-        if level <= 1:
-            den = 10
+        if den == 10:
             n = rng.randint(1, 9)
             text = f"0.{n}"
         else:
-            den = 100
             n = rng.randint(1, 99)
             text = f"0.{n:02d}"
         prompt = f"Write {n}/{den} as a decimal. = ?"
@@ -417,15 +478,13 @@ class DecimalNotation(Skill):
             payload={"variant": "to_decimal", "n": n, "den": den, "text": text},
         )
 
-    def _to_fraction(self, level: int, rng: random.Random) -> Problem:
+    def _to_fraction(self, level: int, den: int, rng: random.Random) -> Problem:
         # "Write 0.45 as a fraction."  Keep it over 10 or 100 (value is what grades).
-        if level <= 1:
+        if den == 10:
             n = rng.randint(1, 9)
-            den = 10
             text = f"0.{n}"
         else:
             n = rng.randint(1, 99)
-            den = 100
             text = f"0.{n:02d}"
         value = Fraction(n, den)
         prompt = f"Write {text} as a fraction. = ?"
@@ -438,9 +497,15 @@ class DecimalNotation(Skill):
         )
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        if rng.random() < 0.5:
-            return self._to_decimal(level, rng)
-        return self._to_fraction(level, rng)
+        # One direction + place per band: fraction->decimal tenths -> decimal->fraction
+        # tenths -> fraction->decimal hundredths -> decimal->fraction hundredths.
+        if level <= 1:
+            return self._to_decimal(level, 10, rng)
+        if level == 2:
+            return self._to_fraction(level, 10, rng)
+        if level == 3:
+            return self._to_decimal(level, 100, rng)
+        return self._to_fraction(level, 100, rng)
 
     def invariant(self, problem: Problem) -> bool:
         p = problem.payload
@@ -495,7 +560,7 @@ class CompareDecimals(Skill):
     grade = 4
     domain = "Number & Operations—Fractions"
     title = "Compare decimals to hundredths"
-    max_level = 3
+    max_level = 4
     answer_type = "comparator"
     phase = 1
 
@@ -506,23 +571,34 @@ class CompareDecimals(Skill):
 
     def generate(self, level: int, rng: random.Random) -> Problem:
         # Work in hundredths internally so comparison is exact integer math.
+        # tenths (strict) -> tenths (allow equal) -> two-place hundredths ->
+        # the place-value trap (tenths vs hundredths, different #places).
         if level <= 1:
-            # both one-place decimals (tenths)
             h1 = rng.randint(1, 9) * 10
             h2 = rng.randint(1, 9) * 10
+            while h2 == h1:  # strict inequality at the floor
+                h2 = rng.randint(1, 9) * 10
             p1 = p2 = 1
         elif level == 2:
-            h1 = rng.randint(1, 99)
-            h2 = rng.randint(1, 99)
-            p1 = 1 if h1 % 10 == 0 else 2
-            p2 = 1 if h2 % 10 == 0 else 2
+            h1 = rng.randint(1, 9) * 10
+            h2 = rng.randint(1, 9) * 10  # tenths, equality now allowed
+            p1 = p2 = 1
+        elif level == 3:
+            h1 = rng.randint(11, 99)
+            while h1 % 10 == 0:  # genuine two-place hundredths
+                h1 = rng.randint(11, 99)
+            h2 = rng.randint(11, 99)
+            while h2 % 10 == 0:
+                h2 = rng.randint(11, 99)
+            p1 = p2 = 2
         else:
-            # Tricky: one tenths value vs one hundredths value (e.g. 0.3 vs 0.27).
-            tenths = rng.randint(1, 9)
-            h1 = tenths * 10
+            # the trap: a tenths value vs a genuine two-place hundredths (e.g. 0.3 vs 0.27)
+            h1 = rng.randint(1, 9) * 10
             p1 = 1
             h2 = rng.randint(1, 99)
-            p2 = 1 if h2 % 10 == 0 else 2
+            while h2 % 10 == 0:  # keep h2 a real 2-place hundredth so the trap stays
+                h2 = rng.randint(1, 99)
+            p2 = 2
         left = self._decimal_text(h1, p1)
         right = self._decimal_text(h2, p2)
         sym = _compare_symbol(Fraction(h1, 100), Fraction(h2, 100))

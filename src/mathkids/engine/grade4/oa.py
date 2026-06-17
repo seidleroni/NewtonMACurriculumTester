@@ -43,19 +43,28 @@ class FactsTo12(Skill):
     grade = 4
     domain = _DOMAIN
     title = "Multiplication & division facts to 12 × 12"
-    max_level = 3
+    max_level = 5
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        if level <= 1:
-            a, b = rng.randint(1, 9), rng.randint(1, 9)
+        if level <= 1:  # small single-digit multiplication
+            a, b = rng.randint(2, 5), rng.randint(2, 5)
             prompt, ans, op = f"{a} × {b} = ?", a * b, "×"
-        elif level == 2:
-            a, b = rng.randint(1, 12), rng.randint(1, 12)
+        elif level == 2:  # full single-digit table
+            a, b = rng.randint(2, 9), rng.randint(2, 9)
             prompt, ans, op = f"{a} × {b} = ?", a * b, "×"
-        else:  # division facts, built from a whole product (divisor never 0)
-            a, b = rng.randint(2, 12), rng.randint(1, 12)
+        elif level == 3:  # force a hard 10/11/12 fact (on either side)
+            a, b = rng.randint(10, 12), rng.randint(2, 12)
+            if rng.random() < 0.5:
+                a, b = b, a
+            prompt, ans, op = f"{a} × {b} = ?", a * b, "×"
+        elif level == 4:  # division on familiar single-digit facts
+            a, b = rng.randint(2, 9), rng.randint(2, 9)
+            product = a * b
+            prompt, ans, op = f"{product} ÷ {a} = ?", b, "÷"
+        else:  # division across the full 1-12 range
+            a, b = rng.randint(2, 12), rng.randint(2, 12)
             product = a * b
             prompt, ans, op = f"{product} ÷ {a} = ?", b, "÷"
         return Problem(
@@ -105,18 +114,24 @@ class MultiplicativeComparison(Skill):
     grade = 4
     domain = _DOMAIN
     title = "Multiplicative comparison"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        hi = 6 if level <= 1 else (10 if level == 2 else 12)
-        n = rng.randint(2, hi)
-        b = rng.randint(2, hi)
+        # Forward "times as many" first (levels 1-2), then the harder backward
+        # "how many times as many" / unknown-factor reasoning (levels 3-4).
+        if level <= 1:
+            n, b, find_product = rng.randint(2, 5), rng.randint(2, 5), True
+        elif level == 2:
+            n, b, find_product = rng.randint(2, 9), rng.randint(2, 12), True
+        elif level == 3:
+            n, b, find_product = rng.randint(2, 6), rng.randint(2, 8), False
+        else:
+            n, b, find_product = rng.randint(2, 12), rng.randint(2, 12), False
         product = n * b
         who, other = rng.sample(_KID_NAMES, 2)
         items = rng.choice(_ITEM_NOUNS)
-        find_product = level <= 1 or rng.random() < 0.5
         if find_product:  # other has b, who has n times as many -> find who's count
             prompt = (
                 f"{other} has {b} {items}. {who} has {n} times as many {items} "
@@ -184,18 +199,24 @@ class ComparisonWordProblems(Skill):
     grade = 4
     domain = _DOMAIN
     title = "Multiplicative comparison word problems"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        hi = 6 if level <= 1 else (10 if level == 2 else 12)
-        n = rng.randint(2, hi)
-        k = rng.randint(2, hi)
+        # Forward "times as long" (find the longer thing) first; the backward "find the
+        # shorter length" (divide) reasoning is reserved for the top bands.
+        if level <= 1:
+            n, k, do_multiply = rng.randint(2, 5), rng.randint(2, 5), True
+        elif level == 2:
+            n, k, do_multiply = rng.randint(2, 9), rng.randint(2, 12), True
+        elif level == 3:
+            n, k, do_multiply = rng.randint(2, 6), rng.randint(2, 8), False
+        else:
+            n, k, do_multiply = rng.randint(2, 12), rng.randint(2, 12), False
         unit = rng.choice(_LONG_UNITS)
         big_thing = rng.choice(_LONG_THINGS)
         small_thing = rng.choice([t for t in _LONG_THINGS if t != big_thing])
-        do_multiply = level <= 1 or rng.random() < 0.5
         if do_multiply:  # short = k, big is n times as long -> find big
             big = n * k
             prompt = (
@@ -261,40 +282,53 @@ class MultiStepRemainders(Skill):
     grade = 4
     domain = _DOMAIN
     title = "Multi-step + interpret remainders"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # One new demand per band: one-step equal groups -> two-step (multiply then
+        # subtract) -> exact division -> division whose remainder forces rounding up.
         name = rng.choice(_KID_NAMES)
         items = rng.choice(_ITEM_NOUNS)
-        kind = rng.choice(("buses", "combine"))
-        if kind == "buses":  # round UP: each group needs a whole container
-            cap = rng.choice((4, 6, 8, 10, 12))
-            if level <= 1:
-                people = rng.randint(cap + 1, cap * 4)
-            elif level == 2:
-                people = rng.randint(cap + 1, cap * 7)
-            else:
-                people = rng.randint(cap + 1, cap * 12)
-            buses = -(-people // cap)  # ceiling division
+        if level <= 1:  # one-step equal groups, no second operation
+            a, b = rng.randint(2, 5), rng.randint(2, 6)
+            prompt = (
+                f"{name} has {a} boxes with {b} {items} in each box. "
+                f"How many {items} in all?"
+            )
+            answer = a * b
+            payload = {"kind": "groups", "a": a, "b": b}
+        elif level == 2:  # two-step: multiply, then give some away (answer stays >= 1)
+            a, b = rng.randint(2, 8), rng.randint(2, 9)
+            base = a * b
+            c = rng.randint(1, base - 1)
+            given = items[:-1] if c == 1 else items  # "1 apple", not "1 apples"
+            prompt = (
+                f"{name} has {a} boxes with {b} {items} in each box, "
+                f"then gives away {c} {given}. How many {items} are left?"
+            )
+            answer = base - c
+            payload = {"kind": "combine", "a": a, "b": b, "c": c}
+        elif level == 3:  # division as grouping, but it divides evenly (no remainder)
+            cap = rng.choice((4, 6, 8, 10))
+            groups = rng.randint(2, 9)
+            people = cap * groups
             prompt = (
                 f"{people} students are going on a trip. Each bus holds {cap} students. "
                 f"How many buses are needed so everyone has a seat?"
             )
-            answer = buses
+            answer = groups
             payload = {"kind": "buses", "people": people, "cap": cap}
-        else:  # (a × b) - c, kept non-negative
-            hi = 6 if level <= 1 else (9 if level == 2 else 12)
-            a, b = rng.randint(2, hi), rng.randint(2, hi)
-            base = a * b
-            c = rng.randint(1, base)
+        else:  # division with a forced remainder -> round UP
+            cap = rng.choice((4, 6, 8, 10, 12))
+            people = rng.randint(2, 12) * cap + rng.randint(1, cap - 1)
             prompt = (
-                f"{name} has {a} boxes with {b} {items} in each box, "
-                f"then gives away {c} {items}. How many {items} are left?"
+                f"{people} students are going on a trip. Each bus holds {cap} students. "
+                f"How many buses are needed so everyone has a seat?"
             )
-            answer = base - c
-            payload = {"kind": "combine", "a": a, "b": b, "c": c}
+            answer = -(-people // cap)  # ceiling division
+            payload = {"kind": "buses", "people": people, "cap": cap}
         return Problem(
             skill_id=self.id,
             level=level,
@@ -308,6 +342,8 @@ class MultiStepRemainders(Skill):
         if p["kind"] == "buses":
             need = -(-p["people"] // p["cap"])
             ok = problem.answer.value == need and (need - 1) * p["cap"] < p["people"]
+        elif p["kind"] == "groups":
+            ok = problem.answer.value == p["a"] * p["b"]
         else:
             ok = problem.answer.value == p["a"] * p["b"] - p["c"]
         return ok and problem.answer.value >= 0 and super().invariant(problem)
@@ -331,6 +367,11 @@ class MultiStepRemainders(Skill):
                 f"Divide {p['people']} by {p['cap']} to see how many full buses there are.",
                 "If any students are left over, add one more bus so everyone fits.",
             ]
+        if p["kind"] == "groups":
+            return [
+                f"Each of the {p['a']} boxes has the same number, {p['b']}.",
+                f"Multiply the equal groups: {p['a']} × {p['b']}.",
+            ]
         return [
             f"First multiply the equal groups: {p['a']} × {p['b']}.",
             f"Then subtract the {p['c']} given away.",
@@ -344,11 +385,15 @@ class MultiStepRemainders(Skill):
             left = people % cap
             buses = -(-people // cap)
             if left:
+                who = "student still needs" if left == 1 else "students still need"
                 return (
-                    f"{people} ÷ {cap} = {full} remainder {left}. The {left} leftover students "
-                    f"still need a bus, so round up to {buses} buses."
+                    f"{people} ÷ {cap} = {full} remainder {left}. The {left} leftover {who} "
+                    f"a bus, so round up to {buses} buses."
                 )
             return f"{people} ÷ {cap} = {full} exactly, so {buses} buses are needed."
+        if p["kind"] == "groups":
+            a, b = p["a"], p["b"]
+            return f"{a} boxes of {b} is {a} × {b} = {a * b}."
         a, b, c = p["a"], p["b"], p["c"]
         return f"{a} × {b} = {a * b}, then {a * b} - {c} = {a * b - c}."
 
@@ -364,11 +409,11 @@ class FactorsMultiplesPrimes(Skill):
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        hi = 24 if level <= 1 else (40 if level == 2 else 60)
-        do_factors = rng.random() < 0.5
-        if do_factors:  # pick the one true factor of n among four choices
-            f = rng.randint(2, 9)
-            m = rng.randint(2, max(2, hi // f))
+        # Floor: recognize a factor of a small number. Then classify prime/composite on
+        # small numbers, then on trickier larger ones (composites that look prime).
+        if level <= 1:  # pick the one true factor of n among four choices
+            f = rng.randint(2, 6)
+            m = rng.randint(2, 4)
             n = f * m
             non_divisors = [d for d in range(2, 13) if n % d != 0]
             distractors = tuple(str(d) for d in rng.sample(non_divisors, 3))
@@ -381,7 +426,12 @@ class FactorsMultiplesPrimes(Skill):
                 payload={"variant": "factor_mc", "n": n, "f": f},
             )
         # prime vs composite (n >= 2 so the question is well-posed)
-        n = rng.randint(2, hi)
+        if level == 2:
+            n = rng.randint(2, 30)
+        elif rng.random() < 0.5:  # bias the top band toward look-alike hard cases
+            n = rng.choice((49, 51, 53, 57, 59, 61, 67, 71, 73, 77, 79))
+        else:
+            n = rng.randint(31, 80)
         label = "prime" if _is_prime(n) else "composite"
         other = "composite" if label == "prime" else "prime"
         prompt = f"Is {n} prime or composite?"
@@ -452,15 +502,16 @@ class GeneratePatterns(Skill):
     grade = 4
     domain = _DOMAIN
     title = "Generate & analyze patterns"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        use_multiply = level >= 3 and rng.random() < 0.5
-        if use_multiply:  # multiply by k each time
+        # Addition rules with growing step sizes (levels 1-3), then the new
+        # multiplicative (geometric) rule reserved for the top band.
+        if level >= 4:  # multiply by k each time
             k = rng.choice((2, 3))
-            start = rng.randint(1, 4)
+            start = rng.randint(2, 4)
             terms = [start]
             for _ in range(3):
                 terms.append(terms[-1] * k)
