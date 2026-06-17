@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import random
 from fractions import Fraction
+from math import gcd
 
 from mathkids.answers import ComparatorAnswer, FractionAnswer, IntegerAnswer
 from mathkids.engine.base import Lesson, Problem, Skill, register
@@ -31,20 +32,29 @@ class UnderstandFractions(Skill):
     grade = 3
     domain = "Number & Operations—Fractions"
     title = "Understand fractions a/b"
-    max_level = 3
+    max_level = 4
     answer_type = "fraction"
     phase = 2
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # unit fraction -> non-unit on familiar denominators -> harder denominators ->
+        # the whole / near-whole. Keep (a,b) coprime in the middle bands so the displayed
+        # answer equals the parts the kid counts (FractionAnswer auto-reduces).
         if level <= 1:
-            b = rng.choice((2, 3, 4))
-            a = rng.randint(1, b)
+            b, a = rng.choice((2, 3, 4)), 1
         elif level == 2:
-            b = rng.choice(_DENOMS)
-            a = rng.randint(1, b)
-        else:
+            b = rng.choice((3, 4))
+            a = rng.randint(2, b - 1)
+            while gcd(a, b) != 1:
+                a = rng.randint(2, b - 1)
+        elif level == 3:
             b = rng.choice((6, 8))
-            a = rng.randint(1, b)
+            a = rng.randint(1, b - 1)
+            while gcd(a, b) != 1:
+                a = rng.randint(1, b - 1)
+        else:
+            b = rng.choice((3, 4, 6, 8))  # exclude 2 so a=b-1 is never the 1/2 floor
+            a = rng.choice((b - 1, b))  # near-whole, or the whole (a == b -> "1")
         value = Fraction(a, b)
         word = _DENOM_WORDS[b]
         prompt = (
@@ -102,21 +112,32 @@ class FractionsOnNumberLine(Skill):
     grade = 3
     domain = "Number & Operations—Fractions"
     title = "Fractions on a number line"
-    max_level = 3
+    max_level = 4
     answer_type = "fraction"
     phase = 2
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # unit mark -> non-unit coprime -> harder denominators -> a mark whose simplest
+        # name differs from k/d (equivalence on the line). Coprime in 2-3 keeps the
+        # displayed value equal to the counted jumps.
         if level <= 1:
-            d = rng.choice((2, 3, 4))
+            d, k = rng.choice((3, 4)), 1
         elif level == 2:
-            d = rng.choice(_DENOMS)
+            d = rng.choice((3, 4))
+            k = rng.randint(2, d - 1)
+            while gcd(k, d) != 1:
+                k = rng.randint(2, d - 1)
+        elif level == 3:
+            d = rng.choice((6, 8))
+            k = rng.randint(1, d - 1)
+            while gcd(k, d) != 1:
+                k = rng.randint(1, d - 1)
         else:
             d = rng.choice((6, 8))
-        k = rng.randint(1, d - 1)
+            k = rng.choice([j for j in range(1, d) if gcd(j, d) != 1])  # reduces, e.g. 3/6 -> 1/2
         value = Fraction(k, d)
         prompt = (
-            "The number line from 0 to 1 is split into equal parts. "
+            f"The number line from 0 to 1 is split into {d} equal parts. "
             "What fraction does the marked tick show? = ?"
         )
         return Problem(
@@ -169,16 +190,13 @@ class EquivalentAndCompareFractions(Skill):
     grade = 3
     domain = "Number & Operations—Fractions"
     title = "Equivalent & compare fractions"
-    max_level = 3
+    max_level = 4
     answer_type = "comparator"
     phase = 1
 
     def _make_equivalence(self, level: int, rng: random.Random) -> Problem:
-        # Choose base a/b and a whole-number multiplier so b*mult is a valid denominator.
-        pairs = [(1, 2, 4), (1, 2, 6), (1, 2, 8), (1, 3, 6), (2, 3, 6), (1, 4, 8), (3, 4, 8)]
-        if level <= 1:
-            pairs = [(1, 2, 4), (1, 2, 6), (1, 3, 6)]
-        a, b, big = rng.choice(pairs)
+        # Floor: fill the missing numerator for a familiar fraction that doubles/triples.
+        a, b, big = rng.choice([(1, 2, 4), (1, 3, 6), (2, 3, 6)])
         mult = big // b
         num = a * mult
         prompt = f"Fill in the missing number: {a}/{b} = ?/{big}"
@@ -190,20 +208,27 @@ class EquivalentAndCompareFractions(Skill):
             payload={"variant": "equivalence", "a": a, "b": b, "big": big, "num": num},
         )
 
-    def _make_compare(self, level: int, rng: random.Random) -> Problem:
-        same = rng.choice(("denominator", "numerator"))
-        if same == "denominator":
-            d = rng.choice(_DENOMS)
-            n1, n2 = rng.sample(range(1, d), 2) if d > 2 else (1, 1)
-            if n1 == n2:
-                n2 = n1 + 1 if n1 + 1 < d else n1
+    def _make_compare(self, level: int, rng: random.Random, mode: str) -> Problem:
+        if mode == "like_denom":  # same bottom, bigger top wins
+            d = rng.choice((3, 4, 6, 8))  # >= 2 distinct numerators exist (d >= 3)
+            n1, n2 = rng.sample(range(1, d), 2)
             f1, f2 = Fraction(n1, d), Fraction(n2, d)
             left, right = f"{n1}/{d}", f"{n2}/{d}"
-        else:
-            n = 1 if rng.random() < 0.5 else rng.choice((2, 3))
+        elif mode == "like_num":  # same top, smaller bottom wins (counter-intuitive)
+            n = rng.choice((1, 2, 3))
             d1, d2 = rng.sample([d for d in _DENOMS if d > n], 2)
             f1, f2 = Fraction(n, d1), Fraction(n, d2)
             left, right = f"{n}/{d1}", f"{n}/{d2}"
+        else:  # unlike: different top AND bottom (one denominator a multiple of the other)
+            d1, d2 = rng.choice([(2, 4), (2, 6), (2, 8), (3, 6), (4, 8)])
+            while True:
+                n1, n2 = rng.randint(1, d1 - 1), rng.randint(1, d2 - 1)
+                f1, f2 = Fraction(n1, d1), Fraction(n2, d2)
+                # Different tops AND a strict comparison, so it can't collapse into the
+                # like-numerator band (L3) or produce "=".
+                if n1 != n2 and f1 != f2:
+                    break
+            left, right = f"{n1}/{d1}", f"{n2}/{d2}"
         sym = "<" if f1 < f2 else (">" if f1 > f2 else "=")
         prompt = f"Compare the fractions. Type <, =, or >:  {left} ? {right}"
         return Problem(
@@ -211,13 +236,19 @@ class EquivalentAndCompareFractions(Skill):
             level=level,
             prompt=prompt,
             answer=ComparatorAnswer(sym),
-            payload={"variant": "compare", "same": same, "left": left, "right": right, "sym": sym},
+            payload={"variant": "compare", "same": mode, "left": left, "right": right, "sym": sym},
         )
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        if rng.random() < 0.5:
+        # equivalence (fill-in) -> like-denominator compare -> like-numerator compare ->
+        # unlike compare. The floor is integer; the compare bands are comparator picks.
+        if level <= 1:
             return self._make_equivalence(level, rng)
-        return self._make_compare(level, rng)
+        if level == 2:
+            return self._make_compare(level, rng, "like_denom")
+        if level == 3:
+            return self._make_compare(level, rng, "like_num")
+        return self._make_compare(level, rng, "unlike")
 
     def invariant(self, problem: Problem) -> bool:
         p = problem.payload
@@ -247,14 +278,19 @@ class EquivalentAndCompareFractions(Skill):
                 f"How many times bigger is the new bottom? {p['big']} ÷ {p['b']} = {mult}.",
                 "Multiply the top by that same number to keep the fraction equal.",
             ]
-        if p["same"] == "denominator":
+        if p["same"] == "like_denom":
             return [
                 "The bottoms match, so the pieces are the same size.",
                 "More pieces (bigger top) means a bigger fraction.",
             ]
+        if p["same"] == "like_num":
+            return [
+                "The tops match, so you have the same number of pieces.",
+                "Smaller bottom means bigger pieces, so that fraction is larger.",
+            ]
         return [
-            "The tops match, so you have the same number of pieces.",
-            "Smaller bottom means bigger pieces, so that fraction is larger.",
+            "The tops and bottoms are both different.",
+            "Rename to a common bottom (or picture the sizes) to compare them.",
         ]
 
     def worked_example(self, problem: Problem) -> str:
@@ -265,11 +301,10 @@ class EquivalentAndCompareFractions(Skill):
                 f"{p['a']}/{p['b']} = ?/{p['big']}: the bottom grew ×{mult}, so the top "
                 f"grows ×{mult} too: {p['a']} × {mult} = {p['num']}. Answer = {p['num']}."
             )
-        reason = (
-            "same bottoms, so compare the tops"
-            if p["same"] == "denominator"
-            else "same tops, so the smaller bottom is the bigger fraction"
-        )
+        reason = {
+            "like_denom": "same bottoms, so compare the tops",
+            "like_num": "same tops, so the smaller bottom is the bigger fraction",
+        }.get(p["same"], "different tops and bottoms, so rename to a common bottom")
         return (
             f"{p['left']} ? {p['right']}: {reason}. "
             f"Answer = {p['sym']}."

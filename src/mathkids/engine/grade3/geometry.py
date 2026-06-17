@@ -32,8 +32,8 @@ class CategorizeShapes(Skill):
     grade = 3
     domain = "Geometry"
     title = "Categorize shapes"
-    max_level = 2
-    answer_type = "word"
+    max_level = 3
+    answer_type = "integer"  # L1-L2 emit a side count; L3 is a word pick (per-level split)
     phase = 1
 
     def _make_special_quad(self, level: int, rng: random.Random) -> Problem:
@@ -53,11 +53,9 @@ class CategorizeShapes(Skill):
             payload={"variant": "special_quad", "shape": shape},
         )
 
-    def _make_side_count(self, level: int, rng: random.Random) -> Problem:
+    def _make_side_count(self, level: int, rng: random.Random, shapes: tuple) -> Problem:
         # How many sides does a named category have? Unambiguous whole-number answer.
-        shape, sides = rng.choice(
-            (("quadrilateral", 4), ("triangle", 3), ("pentagon", 5), ("hexagon", 6))
-        )
+        shape, sides = rng.choice(shapes)
         prompt = f"How many sides does a {shape} have? = ?"
         return Problem(
             skill_id=self.id,
@@ -68,13 +66,16 @@ class CategorizeShapes(Skill):
         )
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        # Level 1 sticks to the side-count question; higher levels mix in the
-        # "special kind of quadrilateral" category question.
+        # Side count of the two most familiar shapes -> add the less-familiar
+        # pentagon/hexagon -> the "special kind of quadrilateral" category reasoning.
         if level <= 1:
-            return self._make_side_count(level, rng)
-        if rng.random() < 0.5:
-            return self._make_special_quad(level, rng)
-        return self._make_side_count(level, rng)
+            return self._make_side_count(level, rng, (("triangle", 3), ("quadrilateral", 4)))
+        if level == 2:
+            return self._make_side_count(
+                level, rng,
+                (("triangle", 3), ("quadrilateral", 4), ("pentagon", 5), ("hexagon", 6)),
+            )
+        return self._make_special_quad(level, rng)
 
     def invariant(self, problem: Problem) -> bool:
         p = problem.payload
@@ -113,9 +114,7 @@ class CategorizeShapes(Skill):
         if p["variant"] == "special_quad":
             return (
                 f"A {p['shape']} has 4 straight sides, and every 4-sided shape is a "
-                "quadrilateral, so a {0} is a quadrilateral. Answer = quadrilateral.".format(
-                    p["shape"]
-                )
+                f"quadrilateral, so a {p['shape']} is a quadrilateral. Answer = quadrilateral."
             )
         return (
             f"A {p['shape']} is named for its sides, so count them: a {p['shape']} has "
@@ -134,16 +133,19 @@ class PartitionEqualAreas(Skill):
     phase = 2
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # Disjoint denominator bands so an easy fraction never recurs at a harder level:
+        # halves/thirds -> fourths/sixths -> eighths.
         if level <= 1:
-            b = rng.choice((2, 3, 4))
+            b = rng.choice((2, 3))
         elif level == 2:
-            b = rng.choice((2, 3, 4, 6, 8))
+            b = rng.choice((4, 6))
         else:
-            b = rng.choice((6, 8))
-        name, _aliases = _SHARE_NAMES[b]
+            b = 8
+        name, aliases = _SHARE_NAMES[b]
+        plural = aliases[0]  # correct plural ("halves", not "halfs")
         value = Fraction(1, b)
         prompt = (
-            f"A shape is split into {b} equal parts ({name}s). "
+            f"A shape is split into {b} equal parts ({plural}). "
             f"What fraction of the whole shape is ONE part? = ?"
         )
         return Problem(
@@ -184,9 +186,10 @@ class PartitionEqualAreas(Skill):
         ]
 
     def worked_example(self, problem: Problem) -> str:
-        b, name = problem.payload["b"], problem.payload["name"]
+        b = problem.payload["b"]
+        plural = _SHARE_NAMES[b][1][0]
         return (
-            f"The shape has {b} equal parts ({name}s), so each part is one of {b}: "
+            f"The shape has {b} equal parts ({plural}), so each part is one of {b}: "
             f"that is 1/{b}. Answer = {problem.answer.display}."
         )
 

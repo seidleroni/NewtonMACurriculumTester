@@ -110,12 +110,11 @@ def _identical(sk, l1, l2, n=80):
 
 
 def test_rebanded_grades_have_no_dead_or_ignored_levels():
-    # Structural guard for the re-banded grades: no two adjacent levels are identical
-    # for every seed (a dead level), and the floor differs from the top (no skill that
-    # ignores its level argument). Grade 3 is intentionally excluded — it is not yet
-    # re-banded and still has known flat/dead skills (3.NF.A.2, 3.NF.A.3, 3.MD.C.5).
+    # Structural guard for the re-banded grades (2, 3, 4): no two adjacent levels are
+    # identical for every seed (a dead level), and the floor differs from the top (no
+    # skill that ignores its level argument).
     offenders = []
-    for grade in (2, 4):
+    for grade in (2, 3, 4):
         for sk in skills_for_grade(grade):
             ml = sk.max_level
             if ml < 2:

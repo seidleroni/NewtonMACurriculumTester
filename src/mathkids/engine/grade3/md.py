@@ -32,6 +32,7 @@ _LINE_PLOT_LABELS = (
     ("seeds", "millimeters"),
     ("worms", "inches"),
 )
+_UNIT_SINGULAR = {"inches": "inch", "centimeters": "centimeter", "millimeters": "millimeter"}
 
 
 def _fmt_time(hour: int, minute: int) -> str:
@@ -44,72 +45,63 @@ class TimeAndElapsed(Skill):
     grade = 3
     domain = "Measurement & Data"
     title = "Time & elapsed time"
-    max_level = 3
+    max_level = 4
     answer_type = "time"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        # Variant A: start time + duration -> end time (TimeAnswer).
-        # Variant B: interval between two times -> minutes (IntegerAnswer).
-        find_end = rng.random() < 0.5
-        if level <= 1:
-            step = 5
-            max_dur = 30
-        elif level == 2:
-            step = 5
-            max_dur = 55
-        else:
-            step = 1
-            max_dur = 59
-        start_hour = rng.randint(1, 11)
-        start_minute = rng.choice(range(0, 60, step))
-        # Keep the duration from rolling past the same clock-hour boundary issues:
-        # cap so start_minute + duration stays under 60, so the hour is unchanged.
-        room = 59 - start_minute
-        upper = min(max_dur, room)
-        if upper < step:
-            # Not enough room this hour; restart minutes at the top of the hour.
-            start_minute = 0
-            upper = min(max_dur, 59)
-        duration = rng.randint(1, upper)
-        if step == 5:
-            duration = max(step, (duration // step) * step)
-        end_hour = start_hour
-        end_minute = start_minute + duration
-        if find_end:
-            prompt = (
-                f"It is {_fmt_time(start_hour, start_minute)}. "
-                f"{duration} minutes go by. What time is it now? (type it like H:MM)"
-            )
-            answer: TimeAnswer | IntegerAnswer = TimeAnswer(end_hour, end_minute)
-        else:
-            prompt = (
-                f"A movie starts at {_fmt_time(start_hour, start_minute)} and ends at "
-                f"{_fmt_time(end_hour, end_minute)}. How many minutes long is it? = ?"
-            )
-            answer = IntegerAnswer(duration)
+        # Find the end time after a duration (one answer type: TimeAnswer). Floor uses
+        # 5-minute steps within the hour; then 1-minute steps; then crossing the hour
+        # boundary (5-minute, then 1-minute) — the genuinely hard elapsed-time case.
+        start_hour = rng.randint(1, 11)  # capped so a one-hour cross never passes 12
+        if level <= 1:  # 5-minute steps, no hour crossing
+            start_minute = rng.choice(range(0, 60, 5))
+            max_steps = (55 - start_minute) // 5
+            if max_steps < 1:
+                start_minute, max_steps = 0, 11
+            duration = 5 * rng.randint(1, max_steps)
+        elif level == 2:  # 1-minute steps, no hour crossing
+            start_minute = rng.randint(0, 58)
+            duration = rng.randint(1, 59 - start_minute)
+        elif level == 3:  # 5-minute steps, cross into the next hour
+            start_minute = rng.choice(range(0, 60, 5))
+            extra = 5 * rng.randint(0, 11)           # minutes into the next hour
+            duration = (60 - start_minute) + extra    # total = 60 + extra -> crosses by 1 hour
+        else:  # 1-minute steps, cross into the next hour
+            start_minute = rng.randint(0, 59)
+            extra = rng.randint(0, 59)
+            duration = (60 - start_minute) + extra
+        total = start_minute + duration
+        end_hour = start_hour + total // 60
+        end_minute = total % 60
+        goes = "minute goes" if duration == 1 else "minutes go"
+        prompt = (
+            f"It is {_fmt_time(start_hour, start_minute)}. "
+            f"{duration} {goes} by. What time is it now? (type it like H:MM)"
+        )
         return Problem(
             skill_id=self.id,
             level=level,
             prompt=prompt,
-            answer=answer,
+            answer=TimeAnswer(end_hour, end_minute),
             payload={
                 "start_hour": start_hour,
                 "start_minute": start_minute,
                 "end_hour": end_hour,
                 "end_minute": end_minute,
                 "duration": duration,
-                "mode": "end" if find_end else "interval",
             },
         )
 
     def invariant(self, problem: Problem) -> bool:
         p = problem.payload
+        total = p["start_minute"] + p["duration"]
         return (
-            1 <= p["duration"] <= 59
+            p["duration"] >= 1
             and 0 <= p["start_minute"] < 60
-            and 0 <= p["end_minute"] < 60
-            and p["end_minute"] == p["start_minute"] + p["duration"]
+            and p["end_minute"] == total % 60
+            and p["end_hour"] == p["start_hour"] + total // 60
+            and 1 <= p["end_hour"] <= 12
             and super().invariant(problem)
         )
 
@@ -126,30 +118,23 @@ class TimeAndElapsed(Skill):
         )
 
     def hints(self, problem: Problem) -> list[str]:
-        p = problem.payload
-        if p["mode"] == "end":
-            return [
-                "Keep the hour and add the minutes that pass to the start minutes.",
-                f"Add {p['duration']} minutes to {p['start_minute']} minutes.",
-            ]
         return [
-            "Both times share the same hour, so just compare the minutes.",
-            f"Subtract: {p['end_minute']} - {p['start_minute']} minutes.",
+            "Add the minutes that pass to the start time.",
+            "If you pass 60 minutes, move to the next hour and keep the leftover minutes.",
         ]
 
     def worked_example(self, problem: Problem) -> str:
         p = problem.payload
         start = _fmt_time(p["start_hour"], p["start_minute"])
         end = _fmt_time(p["end_hour"], p["end_minute"])
-        if p["mode"] == "end":
+        if p["end_hour"] == p["start_hour"]:
             return (
-                f"Start at {start} and add {p['duration']} minutes: the hour stays the same "
-                f"and the minutes become {p['start_minute']} + {p['duration']} = "
-                f"{p['end_minute']}, so it is {end}."
+                f"Start at {start} and add {p['duration']} minutes: the minutes become "
+                f"{p['start_minute']} + {p['duration']} = {p['end_minute']}, so it is {end}."
             )
         return (
-            f"From {start} to {end} the hour does not change, so subtract the minutes: "
-            f"{p['end_minute']} - {p['start_minute']} = {p['duration']} minutes."
+            f"Start at {start} and add {p['duration']} minutes: that passes 60, so move to "
+            f"the next hour with {p['end_minute']} minutes left over — it is {end}."
         )
 
 
@@ -159,20 +144,28 @@ class VolumeMassProblems(Skill):
     grade = 3
     domain = "Measurement & Data"
     title = "Liquid volume & mass problems"
-    max_level = 3
+    max_level = 5
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
         thing, unit, unit_word = rng.choice(_VOLUME_MASS)
-        if level <= 1:
+        # Add one operation per band: add (small) -> add (bigger) -> +subtract ->
+        # +multiply -> +divide. The floor is a single operation, no choice.
+        if level <= 2:
+            op = "+"
+        elif level == 3:
             op = rng.choice(("+", "-"))
-        elif level == 2:
+        elif level == 4:
             op = rng.choice(("+", "-", "×"))
         else:
             op = rng.choice(("+", "-", "×", "÷"))
         if op == "+":
-            a, b = rng.randint(5, 60), rng.randint(5, 60)
+            if level <= 1:  # gentle floor: single-digit, no carry
+                a = rng.randint(2, 8)
+                b = rng.randint(1, 9 - a)
+            else:
+                a, b = rng.randint(5, 60), rng.randint(5, 60)
             ans = a + b
             prompt = (
                 f"A jug holds {a} {unit} of {thing} and another holds {b} {unit}. "
@@ -250,31 +243,34 @@ class ReadScaledBarGraph(Skill):
     grade = 3
     domain = "Measurement & Data"
     title = "Scaled bar/picture graphs (read)"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 2
 
     def generate(self, level: int, rng: random.Random) -> Problem:
         topic, labels = rng.choice(_BAR_TOPICS)
+        # read one bar (scale 2) -> read one bar (bigger scales, 4 cats) -> compare two
+        # bars (modest scales) -> compare two bars (large scales). The two-bar subtract
+        # is the harder demand, reserved for the top bands.
         if level <= 1:
-            scale = 2
-            n_cats = 3
-            max_units = 6
+            scale, n_cats, max_units, ask_more = 2, 3, 5, False
         elif level == 2:
-            scale = rng.choice((2, 5))
-            n_cats = 4
-            max_units = 6
+            scale, n_cats, max_units, ask_more = rng.choice((2, 5, 10)), 4, 6, False
+        elif level == 3:
+            scale, n_cats, max_units, ask_more = rng.choice((2, 5)), 4, 6, True
         else:
-            scale = rng.choice((5, 10))
-            n_cats = 4
-            max_units = 8
+            scale, n_cats, max_units, ask_more = rng.choice((5, 10)), 4, 8, True
         cats = list(labels[:n_cats])
         # Each bar's value is a whole multiple of the scale (so the picture is clean).
         counts = {c: scale * rng.randint(1, max_units) for c in cats}
+        if ask_more and len(set(counts.values())) == 1:
+            # guarantee two different bars so "how many more" is never a trivial 0
+            counts[rng.choice(cats)] += scale
         categories = [[c, counts[c]] for c in cats]
-        ask_more = rng.random() < 0.5
         if ask_more:
             a, b = rng.sample(cats, 2)
+            while counts[a] == counts[b]:  # a distinct pair now always exists
+                a, b = rng.sample(cats, 2)
             if counts[a] < counts[b]:
                 a, b = b, a
             ans = counts[a] - counts[b]
@@ -358,28 +354,28 @@ class ReadLinePlot(Skill):
     grade = 3
     domain = "Measurement & Data"
     title = "Line plots (read)"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 2
 
     def generate(self, level: int, rng: random.Random) -> Problem:
         label, unit = rng.choice(_LINE_PLOT_LABELS)
+        # read one stack (small) -> read one stack (bigger plot) -> total across all
+        # stacks (small) -> total (bigger plot). Summing every stack is the harder step.
         if level <= 1:
-            n_values = 3
-            max_count = 3
+            n_values, max_count, ask_total = 3, 3, False
         elif level == 2:
-            n_values = 4
-            max_count = 4
+            n_values, max_count, ask_total = 5, 5, False
+        elif level == 3:
+            n_values, max_count, ask_total = 3, 3, True
         else:
-            n_values = 5
-            max_count = 5
+            n_values, max_count, ask_total = 5, 5, True
         first = rng.randint(1, 4)
         values = [first + i for i in range(n_values)]
         counts = {v: rng.randint(0, max_count) for v in values}
         if sum(counts.values()) == 0:
             counts[values[0]] = 1
         categories = [[str(v), counts[v]] for v in values]
-        ask_total = rng.random() < 0.5
         if ask_total:
             ans = sum(counts.values())
             prompt = (
@@ -393,9 +389,10 @@ class ReadLinePlot(Skill):
             nonzero = [v for v in values if counts[v] > 0]
             target = rng.choice(nonzero if nonzero else values)
             ans = counts[target]
+            unit_word = _UNIT_SINGULAR[unit] if target == 1 else unit
             prompt = (
                 f"This line plot shows the length of each of the {label} (in {unit}). "
-                f"How many {label} measured {target} {unit}? = ?"
+                f"How many {label} measured {target} {unit_word}? = ?"
             )
             mode = "at_value"
         return Problem(
@@ -459,17 +456,22 @@ class AreaUnitSquares(Skill):
     grade = 3
     domain = "Measurement & Data"
     title = "Area as unit squares"
-    max_level = 2
+    max_level = 3
     answer_type = "integer"
     phase = 2
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # A single strip (count one line) -> a small rectangle -> a large rectangle
+        # where one-by-one counting is impractical.
         if level <= 1:
-            rows = rng.randint(1, 4)
-            cols = rng.randint(1, 5)
+            if rng.random() < 0.5:
+                rows, cols = 1, rng.randint(2, 6)
+            else:
+                rows, cols = rng.randint(2, 6), 1
+        elif level == 2:
+            rows, cols = rng.randint(2, 4), rng.randint(2, 5)
         else:
-            rows = rng.randint(2, 6)
-            cols = rng.randint(2, 8)
+            rows, cols = rng.randint(3, 6), rng.randint(4, 8)
         area = rows * cols
         prompt = (
             "This figure is covered with unit squares (each one is 1 square unit). "
@@ -523,22 +525,20 @@ class MeasureAreaCounting(Skill):
     grade = 3
     domain = "Measurement & Data"
     title = "Measure area by counting squares"
-    max_level = 2
+    max_level = 3
     answer_type = "integer"
     phase = 2
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # States the rows/columns (cues the multiply strategy). Small -> medium -> large.
         if level <= 1:
-            rows = rng.randint(2, 5)
-            cols = rng.randint(2, 6)
+            rows, cols = rng.randint(2, 3), rng.randint(2, 4)
+        elif level == 2:
+            rows, cols = rng.randint(2, 5), rng.randint(3, 7)
         else:
-            rows = rng.randint(3, 7)
-            cols = rng.randint(3, 9)
+            rows, cols = rng.randint(4, 7), rng.randint(5, 9)
         area = rows * cols
-        prompt = (
-            f"This rectangle is made of unit squares in {rows} rows and {cols} columns. "
-            "Count the squares to find the area. = ?"
-        )
+        prompt = f"This rectangle has {rows} rows of {cols} squares. How many squares cover it?"
         return Problem(
             skill_id=self.id,
             level=level,
@@ -588,25 +588,25 @@ class AreaLengthTimesWidth(Skill):
     grade = 3
     domain = "Measurement & Data"
     title = "Area = length × width"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        distributive = level >= 3 and rng.random() < 0.5
+        # small direct -> larger direct -> distributive split (always) -> distributive
+        # with large factors. The split lands only on bands where length >= 6.
         if level <= 1:
-            length = rng.randint(2, 8)
-            width = rng.randint(2, 8)
+            length, width, distributive = rng.randint(2, 6), rng.randint(2, 6), False
         elif level == 2:
-            length = rng.randint(4, 12)
-            width = rng.randint(3, 10)
+            length, width, distributive = rng.randint(5, 12), rng.randint(3, 9), False
+        elif level == 3:
+            length, width, distributive = rng.randint(6, 12), rng.randint(3, 9), True
         else:
-            length = rng.randint(6, 15)
-            width = rng.randint(4, 12)
+            length, width, distributive = rng.randint(10, 15), rng.randint(5, 12), True
         area = length * width
         if distributive:
-            # Split the length as (b + c) to show area = w*b + w*c.
-            b = rng.randint(1, length - 1)
+            # Split the length as (b + c), both parts >= 2 (length >= 6 here).
+            b = rng.randint(2, length - 2)
             c = length - b
             prompt = (
                 f"A rectangle is {length} units long and {width} units wide. Break the "
@@ -676,21 +676,21 @@ class Perimeter(Skill):
     grade = 3
     domain = "Measurement & Data"
     title = "Perimeter"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        reverse = level >= 2 and rng.random() < 0.5
+        # forward (small) -> forward (larger) -> reverse "find the other side" (always)
+        # -> reverse with large numbers. The reverse task is the harder demand.
         if level <= 1:
-            length = rng.randint(2, 9)
-            width = rng.randint(2, 9)
+            length, width, reverse = rng.randint(2, 7), rng.randint(2, 7), False
         elif level == 2:
-            length = rng.randint(3, 15)
-            width = rng.randint(2, 12)
+            length, width, reverse = rng.randint(6, 18), rng.randint(3, 15), False
+        elif level == 3:
+            length, width, reverse = rng.randint(3, 12), rng.randint(2, 10), True
         else:
-            length = rng.randint(5, 25)
-            width = rng.randint(3, 20)
+            length, width, reverse = rng.randint(8, 25), rng.randint(3, 20), True
         perimeter = 2 * (length + width)
         if reverse:
             # Give the perimeter and one side; ask for the other side.

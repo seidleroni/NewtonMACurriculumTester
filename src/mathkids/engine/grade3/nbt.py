@@ -24,20 +24,23 @@ class RoundTo10Or100(Skill):
     grade = 3
     domain = "Number & Operations in Base Ten"
     title = "Round to nearest 10 or 100"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # 2-digit to the ten -> 3-digit to the ten -> 3-digit to the hundred ->
+        # decide the place AND the length. Caps avoid a 1000 answer in a "within 1000"
+        # context and keep the place word matching the result.
         if level <= 1:
-            place = 10
-            n = rng.randint(10, 99)
+            place, n = 10, rng.randint(11, 89)
         elif level == 2:
-            place = 100
-            n = rng.randint(100, 999)
+            place, n = 10, rng.randint(101, 989)
+        elif level == 3:
+            place, n = 100, rng.randint(100, 949)
         else:
             place = rng.choice((10, 100))
-            n = rng.randint(10, 999)
+            n = rng.randint(10, 949)
         place_word = "ten" if place == 10 else "hundred"
         ans = _round_to(n, place)
         return Problem(
@@ -94,28 +97,34 @@ class AddSubWithin1000(Skill):
     grade = 3
     domain = "Number & Operations in Base Ten"
     title = "Add & subtract within 1,000"
-    max_level = 3
+    max_level = 5
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # no-carry add -> forced-carry add -> no-borrow subtract -> forced-borrow
+        # subtract -> operation choice over the full range. Each regrouping band is
+        # built digit-by-digit so the property is guaranteed (not left to chance).
         if level <= 1:
-            a = rng.randint(100, 500)
-            b = rng.randint(10, 1000 - a)
+            a, b = self._no_carry_add(rng)
             op, ans = "+", a + b
         elif level == 2:
-            a = rng.randint(200, 999)
-            b = rng.randint(10, a)
+            a, b = self._carry_add(rng)
+            op, ans = "+", a + b
+        elif level == 3:
+            a, b = self._no_borrow_sub(rng)
             op, ans = "-", a - b
+        elif level == 4:
+            a, b = self._borrow_sub(rng)
+            op, ans = "-", a - b
+        elif rng.random() < 0.5:
+            a = rng.randint(100, 800)
+            b = rng.randint(50, 999 - a)  # keep the sum under 1000
+            op, ans = "+", a + b
         else:
-            if rng.random() < 0.5:
-                a = rng.randint(100, 800)
-                b = rng.randint(50, 1000 - a)
-                op, ans = "+", a + b
-            else:
-                a = rng.randint(300, 1000)
-                b = rng.randint(50, a)
-                op, ans = "-", a - b
+            a = rng.randint(300, 1000)
+            b = rng.randint(50, a - 1)  # never b == a, so the answer is >= 1
+            op, ans = "-", a - b
         return Problem(
             skill_id=self.id,
             level=level,
@@ -123,6 +132,38 @@ class AddSubWithin1000(Skill):
             answer=IntegerAnswer(ans),
             payload={"a": a, "b": b, "op": op},
         )
+
+    @staticmethod
+    def _no_carry_add(rng: random.Random) -> tuple[int, int]:
+        """Two 3-digit addends whose every column sums to <= 9 (no carry)."""
+        h1 = rng.randint(1, 4); h2 = rng.randint(1, 9 - h1)
+        t1 = rng.randint(0, 4); t2 = rng.randint(0, 9 - t1)
+        o1 = rng.randint(0, 4); o2 = rng.randint(0, 9 - o1)
+        return 100 * h1 + 10 * t1 + o1, 100 * h2 + 10 * t2 + o2
+
+    @staticmethod
+    def _carry_add(rng: random.Random) -> tuple[int, int]:
+        """3-digit addition with a FORCED ones carry (no overflow past 999)."""
+        h1 = rng.randint(1, 4); h2 = rng.randint(1, 9 - h1)  # no hundreds carry-out
+        t1 = rng.randint(0, 3); t2 = rng.randint(0, 8 - t1)  # tens stay <= 9 with a carry
+        o1 = rng.randint(1, 9); o2 = rng.randint(10 - o1, 9)  # ones sum >= 10 -> carry
+        return 100 * h1 + 10 * t1 + o1, 100 * h2 + 10 * t2 + o2
+
+    @staticmethod
+    def _no_borrow_sub(rng: random.Random) -> tuple[int, int]:
+        """Minuend > subtrahend with every minuend column >= its subtrahend column."""
+        h2 = rng.randint(1, 4); h1 = rng.randint(h2, 9)
+        t2 = rng.randint(0, 4); t1 = rng.randint(t2, 9)
+        o2 = rng.randint(0, 4); o1 = rng.randint(o2, 9)
+        return 100 * h1 + 10 * t1 + o1, 100 * h2 + 10 * t2 + o2
+
+    @staticmethod
+    def _borrow_sub(rng: random.Random) -> tuple[int, int]:
+        """Subtraction with a FORCED ones borrow; leading digit greater so a > b."""
+        h2 = rng.randint(1, 7); h1 = rng.randint(h2 + 1, 9)  # a > b regardless of lower digits
+        t1 = rng.randint(0, 9); t2 = rng.randint(0, 9)
+        o1 = rng.randint(0, 8); o2 = rng.randint(o1 + 1, 9)  # subtrahend ones bigger -> borrow
+        return 100 * h1 + 10 * t1 + o1, 100 * h2 + 10 * t2 + o2
 
     def invariant(self, problem: Problem) -> bool:
         ans = problem.answer.value
@@ -171,20 +212,21 @@ class MultiplyByMultiplesOf10(Skill):
     grade = 3
     domain = "Number & Operations in Base Ten"
     title = "Multiply by multiples of 10"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # Isolate the "attach a zero" base case (x10) at the floor, then small two-factor,
+        # then the full single-digit range, then the hardest large facts.
         if level <= 1:
-            a = rng.randint(2, 5)
-            tens = rng.randint(1, 5)
+            a, tens = rng.randint(2, 9), 1
         elif level == 2:
-            a = rng.randint(2, 9)
-            tens = rng.randint(2, 9)
+            a, tens = rng.randint(2, 5), rng.randint(2, 5)
+        elif level == 3:
+            a, tens = rng.randint(2, 9), rng.randint(2, 9)
         else:
-            a = rng.randint(6, 9)
-            tens = rng.randint(5, 9)
+            a, tens = rng.randint(6, 9), rng.randint(6, 9)
         b = tens * 10
         ans = a * b
         return Problem(

@@ -14,29 +14,37 @@ _ITEM_NOUNS = ("apples", "marbles", "stickers", "cookies", "crayons", "pencils",
 _KID_NAMES = ("Mia", "Leo", "Ava", "Sam", "Zoe", "Jack", "Nina", "Eli")
 
 
+def _item_word(n: int, items: str) -> str:
+    """The item noun agreeing with a count of n ("1 sticker", not "1 stickers")."""
+    return items[:-1] if n == 1 else items
+
+
 class MeaningOfMultiplication(Skill):
     id = "3.OA.A.1"
     slug = "g3-meaning-multiplication"
     grade = 3
     domain = _DOMAIN
     title = "Meaning of multiplication"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # Factors stay >= 2 (a factor of 1 is trivial and breaks "1 groups" grammar).
         if level <= 1:
             a, b = rng.randint(2, 5), rng.randint(2, 5)
         elif level == 2:
             a, b = rng.randint(2, 8), rng.randint(2, 8)
         else:
-            a, b = rng.randint(1, 10), rng.randint(1, 10)
+            a, b = rng.randint(2, 10), rng.randint(2, 10)
         groups = rng.choice(_GROUP_NOUNS)
         items = rng.choice(_ITEM_NOUNS)
         prompt = (
             f"There are {a} {groups} with {b} {items} in each. "
-            f"How many {items} are there in all? ({a} groups of {b} = ?)"
+            f"How many {items} are there in all?"
         )
+        if level <= 3:  # keep the equation scaffold until the top band
+            prompt += f" ({a} groups of {b} = ?)"
         return Problem(
             skill_id=self.id,
             level=level,
@@ -77,7 +85,7 @@ class MeaningOfDivision(Skill):
     grade = 3
     domain = _DOMAIN
     title = "Meaning of division"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
@@ -85,7 +93,7 @@ class MeaningOfDivision(Skill):
         if level <= 1:
             q, d = rng.randint(2, 5), rng.randint(2, 5)
         elif level == 2:
-            q, d = rng.randint(2, 9), rng.randint(2, 8)
+            q, d = rng.randint(2, 9), rng.randint(2, 9)
         else:
             q, d = rng.randint(2, 10), rng.randint(2, 10)
         total = q * d  # build the dividend so the split is exactly whole
@@ -93,8 +101,10 @@ class MeaningOfDivision(Skill):
         items = rng.choice(_ITEM_NOUNS)
         prompt = (
             f"{names} shares {total} {items} equally among {d} friends. "
-            f"How many {items} does each friend get? ({total} ÷ {d} = ?)"
+            f"How many {items} does each friend get?"
         )
+        if level <= 3:  # keep the equation scaffold until the top band
+            prompt += f" ({total} ÷ {d} = ?)"
         return Problem(
             skill_id=self.id,
             level=level,
@@ -136,19 +146,27 @@ class MulDivWordProblems(Skill):
     grade = 3
     domain = _DOMAIN
     title = "Multiply & divide word problems within 100"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
         items = rng.choice(_ITEM_NOUNS)
         name = rng.choice(_KID_NAMES)
-        do_multiply = rng.random() < 0.5
+        # Multiply-only floor, then divide-only, then the kid must CHOOSE the operation
+        # (small numbers, then the full within-100 range). Draw the flag unconditionally
+        # so rng ordering is stable, then force it at the lower bands.
+        mult_flag = rng.random() < 0.5
+        if level <= 1:
+            do_multiply = True
+        elif level == 2:
+            do_multiply = False
+        else:
+            do_multiply = mult_flag
+        small = level <= 3
         if do_multiply:
-            if level <= 1:
+            if small:
                 a, b = rng.randint(2, 5), rng.randint(2, 5)
-            elif level == 2:
-                a, b = rng.randint(2, 9), rng.randint(2, 9)
             else:
                 a = rng.randint(2, 10)
                 b = rng.randint(2, 100 // a)  # keep the product within 100
@@ -158,10 +176,8 @@ class MulDivWordProblems(Skill):
             )
             answer = a * b
         else:
-            if level <= 1:
+            if small:
                 q, d = rng.randint(2, 5), rng.randint(2, 5)
-            elif level == 2:
-                q, d = rng.randint(2, 9), rng.randint(2, 9)
             else:
                 d = rng.randint(2, 10)
                 q = rng.randint(2, 100 // d)  # dividend stays within 100
@@ -216,15 +232,26 @@ class UnknownInEquation(Skill):
     grade = 3
     domain = _DOMAIN
     title = "Unknown in a x/÷ equation"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        hi = 6 if level <= 1 else (10 if level == 2 else 12)
+        hi = 5 if level <= 1 else (9 if level in (2, 3) else 12)
         a, b = rng.randint(2, hi), rng.randint(2, hi)
         product = a * b
-        form = rng.randint(0, 3)
+        # Ladder the equation forms: missing factor (one spot) -> either spot ->
+        # the division forms -> all four mixed. Draw form unconditionally, then map
+        # it into the level's allowed subset so (skill, level, seed) reproduces.
+        form_raw = rng.randint(0, 3)
+        if level <= 1:
+            form = 0
+        elif level == 2:
+            form = form_raw % 2          # {0, 1}: missing factor, either position
+        elif level == 3:
+            form = 2 + (form_raw % 2)     # {2, 3}: the division forms
+        else:
+            form = form_raw               # all four
         if form == 0:  # a × ? = product
             prompt = f"{a} × ? = {product}"
             answer = b
@@ -294,13 +321,20 @@ class PropertiesOfOperations(Skill):
 
     def generate(self, level: int, rng: random.Random) -> Problem:
         if level <= 1:
-            a, b = rng.randint(2, 6), rng.randint(2, 6)
-            prompt = f"If {a} × {b} = {a * b}, what is {b} × {a}?"
+            a = rng.randint(2, 6)
+            b = rng.randint(2, 6)
+            while b == a:  # force a real swap (5 values in 2..6, so this terminates)
+                b = rng.randint(2, 6)
+            prompt = f"You know {a} × {b} = {a * b}. What is {b} × {a}?"
             answer = a * b
             kind = "commutative"
         elif level == 2:
-            a, b = rng.randint(2, 9), rng.randint(2, 9)
-            prompt = f"If {a} × {b} = {a * b}, what is {b} × {a}?"
+            a = rng.randint(2, 9)
+            b = rng.randint(2, 9)
+            while b == a:  # 8 values in 2..9, terminates
+                b = rng.randint(2, 9)
+            # Do NOT print the product — the kid must recall the fact, not copy it.
+            prompt = f"Order does not change a product. What is {a} × {b}?"
             answer = a * b
             kind = "commutative"
         else:  # distributive: a × c = a × (split1 + split2)
@@ -339,7 +373,7 @@ class PropertiesOfOperations(Skill):
         if problem.payload["kind"] == "commutative":
             return [
                 "Switching the order of the factors does not change the product.",
-                "The answer is the same product you were already given.",
+                "So both ways give the same answer — work out that multiplication fact.",
             ]
         return [
             "Multiply each part inside the parentheses.",
@@ -358,16 +392,19 @@ class DivisionAsUnknownFactor(Skill):
     grade = 3
     domain = _DOMAIN
     title = "Division as unknown factor"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        hi = 6 if level <= 1 else (9 if level == 2 else 12)
+        hi = 5 if level <= 1 else (9 if level == 2 else 12)
         d = rng.randint(2, hi)
         q = rng.randint(2, hi)
         total = q * d
-        prompt = f"What times {d} = {total}? (So {total} ÷ {d} = ?)"
+        if level <= 3:
+            prompt = f"What times {d} = {total}? (So {total} ÷ {d} = ?)"
+        else:  # drop the missing-factor reframing: a bare division fact
+            prompt = f"{total} ÷ {d} = ?"
         return Problem(
             skill_id=self.id,
             level=level,
@@ -409,26 +446,35 @@ class FactsWithin100(Skill):
     grade = 3
     domain = _DOMAIN
     title = "Multiply & divide facts within 100"
-    max_level = 3
+    max_level = 5
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # multiply-small -> multiply-full -> divide -> mixed -> mixed biased to the
+        # hardest facts. No x0/x1 (trivial). Draw the op flag unconditionally so rng
+        # ordering is stable, then force the operation at the lower bands.
+        op_flag = rng.random() < 0.5
         if level <= 1:
-            a, b = rng.randint(0, 5), rng.randint(0, 5)
+            a, b, op = rng.randint(2, 5), rng.randint(2, 5), "×"
         elif level == 2:
-            a, b = rng.randint(0, 10), rng.randint(0, 10)
-        else:
+            a, b, op = rng.randint(2, 10), rng.randint(2, 10), "×"
+        elif level == 3:
+            a, b, op = rng.randint(2, 10), rng.randint(2, 10), "÷"
+        elif level == 4:
             a, b = rng.randint(2, 10), rng.randint(2, 10)
-        if rng.random() < 0.5 or a == 0:  # multiplication (also guards divide-by-zero)
+            op = "×" if op_flag else "÷"
+        else:  # hardest facts (7/8/9 times a larger factor), products kept <= 100
+            a = rng.choice((6, 7, 8, 9))
+            b = rng.randint(6, min(12, 100 // a))
+            op = "×" if op_flag else "÷"
+        if op == "×":
             prompt = f"{a} × {b} = ?"
             answer = a * b
-            op = "×"
         else:  # division fact built from a whole product
             product = a * b
             prompt = f"{product} ÷ {a} = ?"
             answer = b
-            op = "÷"
         return Problem(
             skill_id=self.id,
             level=level,
@@ -476,50 +522,63 @@ class TwoStepWordProblems(Skill):
     grade = 3
     domain = _DOMAIN
     title = "Two-step word problems"
-    max_level = 3
+    max_level = 5
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
         name = rng.choice(_KID_NAMES)
         items = rng.choice(_ITEM_NOUNS)
-        hi = 5 if level <= 1 else (9 if level == 2 else 10)
-        use_multiply = rng.random() < 0.5
+        # One fixed shape at the floor, then add one new choice per rung:
+        # multiply-then-add -> divide-then-add -> second step subtracts -> choose both
+        # operations (small) -> choose both (large). Draw both coin flags up front so
+        # rng ordering is stable, then force them at the lower bands.
+        mult_flag = rng.random() < 0.5
+        sub_flag = rng.random() < 0.5
+        if level <= 1:
+            use_multiply, subtract = True, False
+        elif level == 2:
+            use_multiply, subtract = False, False
+        elif level == 3:
+            use_multiply, subtract = mult_flag, True
+        else:  # levels 4 and 5: full operation choice
+            use_multiply, subtract = mult_flag, sub_flag
+        large = level >= 5
+        hi = 10 if large else 5
+        add_c = rng.randint(1, 20) if large else rng.randint(1, 10)
         if use_multiply:
             a, b = rng.randint(2, hi), rng.randint(2, hi)
             base = a * b
-            if rng.random() < 0.5:  # (a×b) + c
-                c = rng.randint(1, 20)
-                prompt = (
-                    f"{name} buys {a} packs of {items} with {b} in each pack, "
-                    f"then finds {c} more {items}. How many {items} in all?"
-                )
-                answer = base + c
-            else:  # (a×b) - c, kept non-negative
-                c = rng.randint(1, base)
+            if subtract:  # keep the result >= 1 (no "gives away everything")
+                c = rng.randint(1, base - 1)
                 prompt = (
                     f"{name} has {a} boxes with {b} {items} in each, "
-                    f"then gives away {c} {items}. How many {items} are left?"
+                    f"then gives away {c} {_item_word(c, items)}. How many {items} are left?"
                 )
                 answer = base - c
-        else:  # division first: (total ÷ d) then +/- c
-            d = rng.randint(2, hi)
-            q = rng.randint(2, hi)
-            total = q * d
-            if rng.random() < 0.5:  # (total ÷ d) + c
-                c = rng.randint(1, 15)
+            else:
                 prompt = (
-                    f"{name} splits {total} {items} into {d} equal bags, "
-                    f"then adds {c} more {items} to one bag. How many {items} are in that bag?"
+                    f"{name} buys {a} packs of {items} with {b} in each pack, "
+                    f"then finds {add_c} more {_item_word(add_c, items)}. How many {items} in all?"
                 )
-                answer = q + c
-            else:  # (total ÷ d) - c, kept non-negative
-                c = rng.randint(1, q)
+                answer = base + add_c
+        else:  # division first: (total ÷ d) then +/- c
+            d, q = rng.randint(2, hi), rng.randint(2, hi)
+            total = q * d
+            if subtract:
+                c = rng.randint(1, q - 1)  # q >= 2 so this range is non-empty
                 prompt = (
                     f"{name} splits {total} {items} into {d} equal bags, "
-                    f"then eats {c} {items} from one bag. How many {items} remain in that bag?"
+                    f"then eats {c} {_item_word(c, items)} from one bag. "
+                    f"How many {items} remain in that bag?"
                 )
                 answer = q - c
+            else:
+                prompt = (
+                    f"{name} splits {total} {items} into {d} equal bags, then adds {add_c} "
+                    f"more {_item_word(add_c, items)} to one bag. How many {items} are in that bag?"
+                )
+                answer = q + add_c
         return Problem(
             skill_id=self.id,
             level=level,
@@ -561,7 +620,7 @@ class ArithmeticPatterns(Skill):
     grade = 3
     domain = _DOMAIN
     title = "Arithmetic patterns"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
@@ -572,16 +631,22 @@ class ArithmeticPatterns(Skill):
         elif level == 2:
             step = rng.choice((3, 4, 6))
             start = step * rng.randint(1, 5)
-        else:
+        elif level == 3:
             step = rng.choice((7, 8, 9))
+            start = step * rng.randint(1, 6)
+        else:  # the kid must infer the step before extending
+            step = rng.choice((3, 4, 6, 7, 8, 9))
             start = step * rng.randint(1, 6)
         shown = [start + step * i for i in range(4)]
         nxt = start + step * 4
         shown_str = ", ".join(str(v) for v in shown)
-        prompt = (
-            f"This pattern adds {step} each time: {shown_str}, ___. "
-            f"What is the next number?"
-        )
+        if level <= 3:
+            prompt = (
+                f"This pattern adds {step} each time: {shown_str}, ___. "
+                f"What is the next number?"
+            )
+        else:
+            prompt = f"What number comes next? {shown_str}, ___"
         return Problem(
             skill_id=self.id,
             level=level,
