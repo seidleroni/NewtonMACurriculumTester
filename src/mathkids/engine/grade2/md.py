@@ -14,6 +14,12 @@ from mathkids.answers import IntegerAnswer, MoneyAnswer, TimeAnswer
 from mathkids.engine.base import Lesson, Problem, Skill, register, shuffled_mc
 
 _UNITS = ("cm", "inches", "feet", "meters")
+_UNIT_SINGULAR = {"inches": "inch", "feet": "foot", "meters": "meter"}  # "cm" is fine at 1
+
+
+def _u(n: int, unit: str) -> str:
+    """The unit word agreeing with a count of n (so "1 inch", not "1 inches")."""
+    return _UNIT_SINGULAR.get(unit, unit) if n == 1 else unit
 _LINE_PLOT_LABELS = ("pencils", "books", "marbles", "stickers", "shells")
 _GRAPH_TOPICS = (
     ("Favorite Pets", ("Dogs", "Cats", "Fish", "Birds")),
@@ -28,16 +34,19 @@ class HowMuchLonger(Skill):
     grade = 2
     domain = "Measurement & Data"
     title = "How much longer"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
         unit = rng.choice(_UNITS)
         if level <= 1:
-            longer = rng.randint(5, 20)
+            longer = rng.randint(3, 9)  # single-digit lengths -> tiny differences
             shorter = rng.randint(1, longer - 1)
         elif level == 2:
+            longer = rng.randint(10, 20)
+            shorter = rng.randint(1, longer - 1)
+        elif level == 3:
             longer = rng.randint(20, 60)
             shorter = rng.randint(5, longer - 1)
         else:
@@ -45,8 +54,8 @@ class HowMuchLonger(Skill):
             shorter = rng.randint(10, longer - 1)
         diff = longer - shorter
         prompt = (
-            f"One ribbon is {longer} {unit} long and another is {shorter} {unit} long. "
-            f"How much longer is the longer ribbon? = ?"
+            f"One ribbon is {longer} {_u(longer, unit)} long and another is "
+            f"{shorter} {_u(shorter, unit)} long. How much longer is the longer ribbon? = ?"
         )
         return Problem(
             skill_id=self.id,
@@ -94,16 +103,23 @@ class LengthWordProblems(Skill):
     grade = 2
     domain = "Measurement & Data"
     title = "Length word problems"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
         unit = rng.choice(_UNITS)
-        add = level <= 1 or (level == 2 and rng.random() < 0.5)
+        # add small -> add bigger -> choose add/subtract from the story -> subtract.
+        if level <= 2:
+            add = True
+        elif level == 3:
+            add = rng.random() < 0.5
+        else:
+            add = False
         if add:
             if level <= 1:
-                a, b = rng.randint(5, 25), rng.randint(5, 25)
+                a = rng.randint(2, 6)
+                b = rng.randint(2, 9 - a)  # single-digit, no carry across the ones
             else:
                 a, b = rng.randint(10, 49), rng.randint(10, 50)
             total = a + b
@@ -114,7 +130,7 @@ class LengthWordProblems(Skill):
             )
             op = "+"
         else:
-            if level == 2:
+            if level == 3:
                 whole = rng.randint(30, 90)
             else:
                 whole = rng.randint(40, 99)
@@ -175,7 +191,7 @@ class NumberLineJumps(Skill):
     grade = 2
     domain = "Measurement & Data"
     title = "Sums & differences on a number line"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 2
 
@@ -184,8 +200,13 @@ class NumberLineJumps(Skill):
         start = rng.choice(ticks)
         if level <= 1:
             jump = rng.randint(1, 9)
-            up = start + jump <= 100
+            if start + jump > 100:  # keep level 1 strictly forward (start 100 would flip back)
+                start = 90
+            up = True  # small forward hops only
         elif level == 2:
+            jump = rng.randint(1, 9)
+            up = rng.random() < 0.5  # small hops, now in either direction
+        elif level == 3:
             jump = rng.choice((10, 20, 30))
             up = rng.random() < 0.5
         else:
@@ -272,11 +293,13 @@ class TellTime(Skill):
 
     def generate(self, level: int, rng: random.Random) -> Problem:
         hour = rng.randint(1, 12)
-        choices = (
-            [0, 15, 30, 45]
-            if level <= 1
-            else [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]
-        )
+        # o'clock & half -> quarter hours -> every 5-minute mark.
+        if level <= 1:
+            choices = [0, 30]
+        elif level == 2:
+            choices = [0, 15, 30, 45]
+        else:
+            choices = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]
         minute = rng.choice(choices)
         return Problem(
             skill_id=self.id,
@@ -315,21 +338,28 @@ class CountMoney(Skill):
     grade = 2
     domain = "Measurement & Data"
     title = "Money"
-    max_level = 3
+    max_level = 4
     answer_type = "money"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # Add one coin type at a time before scaling the counts:
+        # dimes+pennies -> +nickels -> +quarters (small) -> bigger piles.
         if level <= 1:
+            pennies = rng.randint(0, 9)
+            nickels = 0
+            dimes = rng.randint(0, 4)
+            quarters = 0
+        elif level == 2:
+            pennies = rng.randint(0, 5)
+            nickels = rng.randint(0, 4)
+            dimes = rng.randint(0, 5)
+            quarters = 0
+        elif level == 3:
             pennies = rng.randint(0, 4)
             nickels = rng.randint(0, 3)
             dimes = rng.randint(0, 4)
             quarters = rng.randint(0, 2)
-        elif level == 2:
-            pennies = rng.randint(0, 6)
-            nickels = rng.randint(0, 5)
-            dimes = rng.randint(0, 8)
-            quarters = rng.randint(0, 8)
         else:
             pennies = rng.randint(0, 9)
             nickels = rng.randint(0, 9)
@@ -424,8 +454,8 @@ class ReadLinePlot(Skill):
         answer = counts[target]
         categories = [[str(v), counts[v]] for v in values]
         prompt = (
-            f"This line plot shows how long each of the {label} measured (in inches). "
-            f"How many {label} measured {target} inches? = ?"
+            f"This line plot shows the lengths of some {label} in inches. "
+            f"How many {label} are {target} inches long? = ?"
         )
         return Problem(
             skill_id=self.id,
@@ -476,31 +506,41 @@ class ReadGraph(Skill):
     grade = 2
     domain = "Measurement & Data"
     title = "Picture & bar graphs (read)"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 2
 
     def generate(self, level: int, rng: random.Random) -> Problem:
         topic, labels = rng.choice(_GRAPH_TOPICS)
-        n_cats = 3 if level <= 1 else 4
+        n_cats = 3 if level <= 2 else 4
         cats = list(labels[:n_cats])
-        max_count = 6 if level <= 1 else (9 if level == 2 else 12)
+        max_count = 6 if level <= 2 else (9 if level == 3 else 12)
         counts = {c: rng.randint(1, max_count) for c in cats}
-        categories = [[c, counts[c]] for c in cats]
-        ask_more = rng.random() < 0.5
-        if ask_more:
+        # One new demand per band: read one bar -> + compare two bars ("more") ->
+        # + total all bars ("all") -> drop the trivial read at the top band.
+        modes = {1: ["read"], 2: ["read", "more"], 3: ["read", "more", "all"]}.get(
+            level, ["more", "all"]
+        )
+        mode = rng.choice(modes)
+        if mode == "read":
+            target = rng.choice(cats)
+            answer = counts[target]
+            prompt = f"This graph shows {topic}. How many {target}? = ?"
+            payload_extra = {"target": target}
+        elif mode == "more":
             a, b = rng.sample(cats, 2)
+            if counts[a] == counts[b]:  # guarantee a non-zero difference to compare
+                counts[b] = counts[b] + 1 if counts[b] < max_count else counts[b] - 1
             if counts[a] < counts[b]:
                 a, b = b, a
             answer = counts[a] - counts[b]
             prompt = f"This graph shows {topic}. How many more {a} than {b}? = ?"
-            mode = "more"
             payload_extra = {"a": a, "b": b}
         else:
             answer = sum(counts.values())
             prompt = f"This graph shows {topic}. How many in all? = ?"
-            mode = "all"
             payload_extra = {}
+        categories = [[c, counts[c]] for c in cats]
         return Problem(
             skill_id=self.id,
             level=level,
@@ -530,7 +570,14 @@ class ReadGraph(Skill):
         )
 
     def hints(self, problem: Problem) -> list[str]:
-        if problem.payload["mode"] == "more":
+        mode = problem.payload["mode"]
+        if mode == "read":
+            target = problem.payload["target"]
+            return [
+                f"Find the {target} bar on the graph.",
+                "Read how tall that one bar is — that's the answer.",
+            ]
+        if mode == "more":
             a = problem.payload["a"]
             b = problem.payload["b"]
             return [
@@ -544,7 +591,11 @@ class ReadGraph(Skill):
 
     def worked_example(self, problem: Problem) -> str:
         counts = problem.payload["counts"]
-        if problem.payload["mode"] == "more":
+        mode = problem.payload["mode"]
+        if mode == "read":
+            target = problem.payload["target"]
+            return f"The {target} bar is {counts[target]} tall, so the answer is {counts[target]}."
+        if mode == "more":
             a = problem.payload["a"]
             b = problem.payload["b"]
             return (

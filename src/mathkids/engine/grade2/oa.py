@@ -16,6 +16,14 @@ _ITEMS = (
     "stickers", "marbles", "crayons", "shells", "blocks", "apples",
     "buttons", "pennies", "cards", "beads",
 )
+_ITEM_SINGULAR = {"pennies": "penny"}  # the rest just drop the trailing "s"
+
+
+def _noun(n: int, item: str) -> str:
+    """The item word agreeing with a count of n (so "1 crayon", not "1 crayons")."""
+    if n == 1:
+        return _ITEM_SINGULAR.get(item, item[:-1])
+    return item
 
 
 class AddSubWordProblems(Skill):
@@ -24,51 +32,63 @@ class AddSubWordProblems(Skill):
     grade = 2
     domain = "Operations & Algebraic Thinking"
     title = "Add & subtract word problems within 100"
-    max_level = 3
+    max_level = 5
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
         name = rng.choice(_NAMES)
         item = rng.choice(_ITEMS)
-        if level <= 1:
-            # One-step join or take-from, result unknown.
+        if level <= 2:
+            # One-step join or take-from, result unknown. Level 1 is a genuine gentle
+            # floor: single-digit numbers with NO carrying or borrowing, so the focus is
+            # reading the story and picking the operation. Level 2 opens to within 100.
+            if level <= 1:
+                join_a = rng.randint(1, 8)
+                join_b = rng.randint(1, 9 - join_a)  # sum <= 9, no carry
+                take_a = rng.randint(3, 9)           # single-digit minuend, no borrow
+            else:
+                join_a = rng.randint(5, 45)
+                join_b = rng.randint(5, 100 - join_a)
+                take_a = rng.randint(20, 99)
             if rng.random() < 0.5:
-                a = rng.randint(5, 45)
-                b = rng.randint(5, 100 - a)
+                a, b = join_a, join_b
                 ans = a + b
                 prompt = (
-                    f"{name} has {a} {item}. Then {name} gets {b} more {item}. "
+                    f"{name} has {a} {item}. Then {name} gets {b} more {_noun(b, item)}. "
                     f"How many {item} does {name} have now?"
                 )
             else:
-                a = rng.randint(20, 99)
+                a = take_a
                 b = rng.randint(1, a)
                 ans = a - b
                 prompt = (
-                    f"{name} has {a} {item}. {name} gives away {b} {item}. "
+                    f"{name} has {a} {item}. {name} gives away {b} {_noun(b, item)}. "
                     f"How many {item} are left?"
                 )
             kind = "one_step"
-        elif level == 2:
-            # One-step with the start unknown (work backwards).
+        elif level <= 4:
+            # One-step with the start unknown (work backwards). Level 3 eases in with
+            # small numbers; level 4 uses the full within-100 range.
+            small = level <= 3
             if rng.random() < 0.5:
-                start = rng.randint(5, 60)
-                change = rng.randint(5, 100 - start)
+                start = rng.randint(2, 9) if small else rng.randint(5, 60)
+                change = rng.randint(1, 9) if small else rng.randint(5, 100 - start)
                 total = start + change
                 ans = start
                 prompt = (
-                    f"{name} got {change} more {item} and then had {total} {item}. "
-                    f"How many {item} did {name} start with?"
+                    f"{name} got {change} more {_noun(change, item)} and then had "
+                    f"{total} {item}. How many {item} did {name} start with?"
                 )
                 kind = "start_unknown_add"
             else:
-                start = rng.randint(20, 99)
+                start = rng.randint(5, 18) if small else rng.randint(20, 99)
                 change = rng.randint(1, start - 1)
                 left = start - change
                 ans = start
                 prompt = (
-                    f"{name} gave away {change} {item} and had {left} {item} left. "
+                    f"{name} gave away {change} {_noun(change, item)} and had "
+                    f"{left} {_noun(left, item)} left. "
                     f"How many {item} did {name} start with?"
                 )
                 kind = "start_unknown_sub"
@@ -88,8 +108,8 @@ class AddSubWordProblems(Skill):
                 left = rng.randint(0, start - 1)
                 ans = start - left  # how many were given away
                 prompt = (
-                    f"{name} had {start} {item} and now has {left} {item} left. "
-                    f"How many {item} did {name} give away?"
+                    f"{name} had {start} {item} and now has {left} {_noun(left, item)} "
+                    f"left. How many {item} did {name} give away?"
                 )
                 kind = "change_unknown_sub"
         return Problem(
@@ -146,23 +166,34 @@ class FactsWithin20(Skill):
     grade = 2
     domain = "Operations & Algebraic Thinking"
     title = "Add & subtract facts within 20"
-    max_level = 3
+    max_level = 5
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
         if level <= 1:
-            a, b = rng.randint(1, 9), rng.randint(1, 9)
+            # Small single-digit addition; the sum never reaches past ten.
+            a = rng.randint(1, 5)
+            b = rng.randint(1, 9 - a)
             op, ans = "+", a + b
         elif level == 2:
-            if rng.random() < 0.5:
-                a, b = rng.randint(1, 9), rng.randint(1, 9)
-                op, ans = "+", a + b
-            else:
-                a = rng.randint(2, 20)
-                b = rng.randint(1, a)
-                op, ans = "-", a - b
-        else:  # bridging-ten facts (the tricky ones)
+            # Full single-digit addition, still no crossing ten (sum <= 10).
+            a = rng.randint(1, 9)
+            b = rng.randint(1, 10 - a)
+            op, ans = "+", a + b
+        elif level == 3:
+            # Subtraction without borrowing: a teen minus its ones (e.g. 17 - 5).
+            # Comes before make-a-ten addition because no-borrow subtraction is the
+            # easier new step.
+            a = rng.randint(11, 19)
+            b = rng.randint(1, a - 10)
+            op, ans = "-", a - b
+        elif level == 4:
+            # Make-a-ten addition: every sum crosses ten (the harder add facts).
+            a = rng.randint(6, 9)
+            b = rng.randint(11 - a, 9)
+            op, ans = "+", a + b
+        else:  # bridging-ten facts both ways (the trickiest)
             if rng.random() < 0.5:
                 a = rng.randint(6, 9)
                 b = rng.randint(11 - a, 9)
@@ -222,13 +253,15 @@ class OddEven(Skill):
     grade = 2
     domain = "Operations & Algebraic Thinking"
     title = "Odd & even numbers"
-    max_level = 2
+    max_level = 3
     answer_type = "word"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        if level <= 1 or rng.random() < 0.6:
-            n = rng.randint(1, 20)
+        # The halving variant only appears at the top band; lower bands are the
+        # classify task, with small numbers at level 1 and the full 1-20 range above.
+        if level < 3 or rng.random() < 0.6:
+            n = rng.randint(1, 10 if level <= 1 else 20)
             word = "even" if n % 2 == 0 else "odd"
             other = "odd" if word == "even" else "even"
             return Problem(
@@ -290,23 +323,33 @@ class ArraysRepeatedAddition(Skill):
     grade = 2
     domain = "Operations & Algebraic Thinking"
     title = "Repeated addition with arrays"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 2
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        low = 1 if level <= 1 else 2
-        rows = rng.randint(low, 5)
-        cols = rng.randint(low, 5)
+        # Grids grow gently: tiny (countable) -> up to 5x5 -> no trivial single rows ->
+        # repeated-addition framing.
+        if level <= 1:
+            low, high = 1, 3
+        elif level == 2:
+            low, high = 1, 4
+        elif level == 3:
+            low, high = 2, 5
+        else:
+            low, high = 2, 6
+        rows = rng.randint(low, high)
+        cols = rng.randint(low, high)
         total = rows * cols
-        if level >= 3 and rng.random() < 0.5:
+        row_word = "row" if rows == 1 else "rows"
+        if level >= 4 and rng.random() < 0.5:
             prompt = (
-                f"This array has {rows} rows of {cols}. Write it as repeated addition "
-                f"and find the total. How many dots in all?"
+                f"This array has {rows} {row_word} of {cols}. Write it as repeated "
+                f"addition and find the total. How many dots in all?"
             )
         else:
             prompt = (
-                f"Look at the array: {rows} rows with {cols} in each row. "
+                f"Look at the array: {rows} {row_word} with {cols} in each row. "
                 f"How many dots are there in all?"
             )
         return Problem(

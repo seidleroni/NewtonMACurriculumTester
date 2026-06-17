@@ -29,14 +29,18 @@ class NameShapesByAttributes(Skill):
     grade = 2
     domain = "Geometry"
     title = "Name shapes by attributes"
-    max_level = 2
+    max_level = 3
     answer_type = "word"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        sides = rng.choice((3, 4) if level <= 1 else (3, 4, 5, 6))
+        # Add one new shape name per band: triangle/quadrilateral -> +pentagon -> +hexagon.
+        # Distractors are scoped to the band's shapes so a level-1 kid only sees the names
+        # introduced so far (no pentagon/hexagon buttons on the easiest band).
+        options = {1: (3, 4), 2: (3, 4, 5)}.get(level, (3, 4, 5, 6))
+        sides = rng.choice(options)
         name = _POLYGON_NAMES[sides]
-        distractors = tuple(nm for nm in _POLYGON_NAMES.values() if nm != name)
+        distractors = tuple(_POLYGON_NAMES[s] for s in options if s != sides)
         prompt = f"A polygon with {sides} sides is called a ___?"
         return Problem(
             skill_id=self.id,
@@ -76,18 +80,28 @@ class PartitionRectangleIntoSquares(Skill):
     grade = 2
     domain = "Geometry"
     title = "Partition a rectangle into squares"
-    max_level = 2
+    max_level = 3
     answer_type = "integer"
     phase = 2
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        hi = 4 if level <= 1 else 6
-        rows = rng.randint(1, hi)
-        cols = rng.randint(1, hi)
+        # Grids grow gently; the top band drops the trivial single-square row/column.
+        if level <= 1:
+            lo, hi = 1, 3
+        elif level == 2:
+            lo, hi = 1, 5
+        else:
+            lo, hi = 2, 6
+        rows = rng.randint(lo, hi)
+        cols = rng.randint(lo, hi)
+        if rows == 1 and cols == 1:
+            cols = 2  # a 1x1 "rectangle" isn't actually partitioned into squares
         total = rows * cols
+        row_word = "row" if rows == 1 else "rows"
+        col_word = "column" if cols == 1 else "columns"
         prompt = (
-            f"This rectangle is split into {rows} rows and {cols} columns of equal "
-            "squares. How many squares are there in all?"
+            f"This rectangle is split into {rows} {row_word} and {cols} {col_word} of "
+            "equal squares. How many squares are there in all?"
         )
         return Problem(
             skill_id=self.id,
@@ -139,9 +153,12 @@ class EqualShares(Skill):
     phase = 2
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        parts = rng.choice((2, 4) if level <= 1 else (2, 3, 4))
+        # Everyday share names first (half/fourth), then add thirds (kids miscount these).
+        # Distractors are scoped to the band so 'third' isn't shown until it's introduced.
+        options = (2, 4) if level <= 1 else (2, 3, 4)
+        parts = rng.choice(options)
         name, aliases = _SHARE_NAMES[parts]
-        distractors = tuple(nm for nm, _al in _SHARE_NAMES.values() if nm != name)
+        distractors = tuple(_SHARE_NAMES[p][0] for p in options if p != parts)
         prompt = f"One of {parts} equal parts of a whole is called a ___?"
         return Problem(
             skill_id=self.id,

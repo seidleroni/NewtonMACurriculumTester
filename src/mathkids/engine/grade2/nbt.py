@@ -16,15 +16,23 @@ class ThreeDigitPlaceValue(Skill):
     grade = 2
     domain = "Number & Operations in Base Ten"
     title = "Three-digit place value"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
         n = rng.randint(100, 999)
-        place = rng.choice(["hundreds", "tens", "ones"])
-        digit = (n // _PLACE_VALUE[place]) % 10
+        # Bands: name the ones digit -> name any digit -> worth (tens/ones) -> worth (any).
         if level <= 1:
+            place = "ones"
+        elif level == 2:
+            place = rng.choice(["hundreds", "tens", "ones"])
+        elif level == 3:
+            place = rng.choice(["tens", "ones"])
+        else:
+            place = rng.choice(["hundreds", "tens", "ones"])
+        digit = (n // _PLACE_VALUE[place]) % 10
+        if level <= 2:
             prompt = f"What digit is in the {place} place of {n}?"
             ans = digit
             mode = "digit"
@@ -88,12 +96,13 @@ class SkipCount(Skill):
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
+        # By 10s (easiest) -> add 5s -> add 100s (must spot which step is in play).
         if level <= 1:
-            step = rng.choice((5, 10))
+            step = 10
         elif level == 2:
-            step = rng.choice((5, 10, 100))
+            step = rng.choice((5, 10))
         else:
-            step = 100
+            step = rng.choice((5, 10, 100))
         # Pick a start that is a multiple of the step and keeps 4 terms within 0..1000.
         max_start = 1000 - 4 * step
         start = rng.randint(0, max_start // step) * step
@@ -145,26 +154,41 @@ class ReadWriteNumbers(Skill):
     grade = 2
     domain = "Number & Operations in Base Ten"
     title = "Read & write numbers to 1,000"
-    max_level = 3
+    max_level = 4
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
         h = rng.randint(1, 9)
-        t = rng.randint(0, 9)
-        o = rng.randint(0, 9)
-        n = h * 100 + t * 10 + o
-        hp, tp, op_ = h * 100, t * 10, o
+        # Level 1 keeps every place non-zero (no dropped columns to puzzle over);
+        # higher levels allow zeros.
         if level <= 1:
+            t = rng.randint(1, 9)
+            o = rng.randint(1, 9)
+        else:
+            t = rng.randint(0, 9)
+            o = rng.randint(0, 9)
+        if level <= 2:
             # Build the number from its expanded form.
+            n = h * 100 + t * 10 + o
+            hp, tp, op_ = h * 100, t * 10, o
             parts = [str(p) for p in (hp, tp, op_) if p != 0]
             expanded = " + ".join(parts)
             prompt = f"What number is {expanded}?"
             ans = n
             mode = "build"
         else:
-            # Fill in one missing addend of the expanded form.
-            idx = rng.randint(0, 2)
+            # Fill in one missing addend of the expanded form. Level 3 only hides the
+            # tens or ones; level 4 can hide any place (including the hundreds). Never
+            # hide a zero place (typing "0" into an expanded-form blank is confusing),
+            # so bump the chosen place to a real digit if it came up zero.
+            idx = rng.choice([1, 2] if level == 3 else [0, 1, 2])
+            digits = [h, t, o]
+            if digits[idx] == 0:
+                digits[idx] = rng.randint(1, 9)
+            h, t, o = digits
+            n = h * 100 + t * 10 + o
+            hp, tp, op_ = h * 100, t * 10, o
             pieces = [str(hp), str(tp), str(op_)]
             ans = (hp, tp, op_)[idx]
             pieces[idx] = "?"
@@ -230,11 +254,17 @@ class CompareThreeDigit(Skill):
         if rng.random() < 0.2:
             b = a  # occasionally equal
         elif level <= 1:
-            # Differ in the hundreds digit so the comparison is clear.
+            # Differ in the hundreds digit so the comparison is clear at a glance.
             b = rng.randint(100, 999)
             while b // 100 == a // 100:
                 b = rng.randint(100, 999)
+        elif level == 2:
+            # Same hundreds, different tens: the answer is decided at the tens place.
+            at = (a // 10) % 10
+            bt = rng.choice([d for d in range(10) if d != at])
+            b = (a // 100) * 100 + bt * 10 + rng.randint(0, 9)
         else:
+            # Any pair — may require comparing all the way down to the ones.
             b = rng.randint(100, 999)
         sign = "<" if a < b else ">" if a > b else "="
         prompt = f"Compare with <, =, or >:  {a} ? {b}"
@@ -280,26 +310,39 @@ class AddSubWithin100(Skill):
     grade = 2
     domain = "Number & Operations in Base Ten"
     title = "Add & subtract within 100"
-    max_level = 3
+    max_level = 5
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        if level <= 1:  # addition, no regrouping
+        if level <= 1:  # two-digit + one-digit, no regrouping
+            ao = rng.randint(0, 8)
+            at = rng.randint(1, 8)
+            b = rng.randint(1, 9 - ao)  # single-digit, ones never reach 10
+            a = at * 10 + ao
+            op, ans = "+", a + b
+        elif level == 2:  # two-digit + two-digit, no regrouping (the old level 1)
             ao = rng.randint(0, 4)
             bo = rng.randint(0, 9 - ao)
             at = rng.randint(1, 7)
             bt = rng.randint(1, 8 - at)
             a, b = at * 10 + ao, bt * 10 + bo
             op, ans = "+", a + b
-        elif level == 2:  # addition with regrouping
+        elif level == 3:  # addition where the ones MIGHT carry (not forced)
+            ao = rng.randint(0, 9)
+            bo = rng.randint(0, 9)
+            at = rng.randint(1, 4)
+            bt = rng.randint(1, 4)
+            a, b = at * 10 + ao, bt * 10 + bo
+            op, ans = "+", a + b
+        elif level == 4:  # addition with FORCED regrouping (the old level 2)
             ao = rng.randint(1, 9)
             bo = rng.randint(10 - ao, 9)
             at = rng.randint(1, 7)
             bt = rng.randint(1, 8 - at)
             a, b = at * 10 + ao, bt * 10 + bo
             op, ans = "+", a + b
-        else:  # subtraction with borrowing
+        else:  # subtraction with borrowing (the old level 3)
             mo = rng.randint(0, 8)
             so = rng.randint(mo + 1, 9)
             mt = rng.randint(2, 9)
@@ -359,14 +402,23 @@ class AddFourTwoDigit(Skill):
     grade = 2
     domain = "Number & Operations in Base Ten"
     title = "Add up to four two-digit numbers"
-    max_level = 3
+    max_level = 5
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        count = 3 if level <= 1 else 4
-        # Cap each addend so 4 numbers stay well within grade range.
-        hi = 24 if level <= 1 else 24 if level == 2 else 30
+        # Ease in the count of addends and their size: 2 small -> 3 small -> 3 bigger
+        # -> 4 bigger -> 4 biggest.
+        if level <= 1:
+            count, hi = 2, 19
+        elif level == 2:
+            count, hi = 3, 19
+        elif level == 3:
+            count, hi = 3, 25
+        elif level == 4:
+            count, hi = 4, 25
+        else:
+            count, hi = 4, 30
         nums = [rng.randint(10, hi) for _ in range(count)]
         ans = sum(nums)
         prompt = " + ".join(str(x) for x in nums) + " = ?"
@@ -414,20 +466,44 @@ class AddSubWithin1000(Skill):
     grade = 2
     domain = "Number & Operations in Base Ten"
     title = "Add & subtract within 1,000"
-    max_level = 3
+    max_level = 5
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        if rng.random() < 0.5:
-            # Addition: keep the sum within 1000.
-            a = rng.randint(100, 800)
-            b = rng.randint(10, 1000 - a)
+        # A real ramp (the old version ignored `level` entirely): no-regroup addition
+        # -> addition where only the ones carry -> full addition -> no-borrow
+        # subtraction -> subtraction with borrowing.
+        if level <= 1:
+            h1 = rng.randint(1, 8); h2 = rng.randint(1, 9 - h1)
+            t1 = rng.randint(0, 9); t2 = rng.randint(0, 9 - t1)
+            o1 = rng.randint(0, 9); o2 = rng.randint(0, 9 - o1)
+            a, b = h1 * 100 + t1 * 10 + o1, h2 * 100 + t2 * 10 + o2
             op, ans = "+", a + b
+        elif level == 2:
+            h1 = rng.randint(1, 8); h2 = rng.randint(1, 9 - h1)
+            t1 = rng.randint(0, 4); t2 = rng.randint(0, 8 - t1)  # tens stay safe even with a carry
+            o1 = rng.randint(0, 9); o2 = rng.randint(0, 9)        # ones may pass 9
+            a, b = h1 * 100 + t1 * 10 + o1, h2 * 100 + t2 * 10 + o2
+            op, ans = "+", a + b
+        elif level == 3:
+            # Full addition, regrouping unconstrained.
+            a = rng.randint(100, 800)
+            b = rng.randint(100, 1000 - a)
+            op, ans = "+", a + b
+        elif level == 4:
+            # Subtraction, no borrowing; hundreds strictly greater so a > b (never a
+            # trivial zero) and every minuend column >= its subtrahend column.
+            hs = rng.randint(1, 8); ts = rng.randint(0, 9); os_ = rng.randint(0, 9)
+            hm = rng.randint(hs + 1, 9); tm = rng.randint(ts, 9); om = rng.randint(os_, 9)
+            a, b = hm * 100 + tm * 10 + om, hs * 100 + ts * 10 + os_
+            op, ans = "-", a - b
         else:
-            # Subtraction: minuend >= subtrahend, non-negative result.
-            a = rng.randint(150, 999)
-            b = rng.randint(10, a)
+            # Subtraction that FORCES a borrow (the hardest): the subtrahend's ones digit
+            # is larger than the minuend's, and its hundreds digit is smaller so a > b.
+            hm = rng.randint(2, 9); tm = rng.randint(0, 9); om = rng.randint(0, 8)
+            hs = rng.randint(1, hm - 1); ts = rng.randint(0, 9); os_ = rng.randint(om + 1, 9)
+            a, b = hm * 100 + tm * 10 + om, hs * 100 + ts * 10 + os_
             op, ans = "-", a - b
         return Problem(
             skill_id=self.id,
@@ -480,12 +556,13 @@ class AddSubTenHundred(Skill):
 
     def generate(self, level: int, rng: random.Random) -> Problem:
         n = rng.randint(100, 900)
+        # Single +/-10 -> single +/-100 -> mixed (kid must spot which column to change).
         if level <= 1:
             step = 10
         elif level == 2:
-            step = rng.choice((10, 100))
-        else:
             step = 100
+        else:
+            step = rng.choice((10, 100))
         # Choose +/- so the result stays in 0..1000.
         options = []
         if n + step <= 1000:

@@ -2,7 +2,7 @@
 
 ## Environment
 
-- `python` is not on PATH (Windows Store stub intercepts it). Use `.venv/Scripts/python.exe` for everything, including tests: `.venv/Scripts/python.exe -m pytest tests/`
+- Run Python through **`uv`**, not the interpreter directly: `uv run pytest tests/`, `uv run python -m tools.simulate_ramp`, etc. (Bare `python` is not on PATH — the Windows Store stub intercepts it — and we standardize on uv for env consistency.)
 - There is no sqlite3 CLI installed; query the DB through Python's `sqlite3` module.
 
 ## Database (mathkids.db)

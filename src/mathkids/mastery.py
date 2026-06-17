@@ -1,27 +1,37 @@
 """Mastery scoring: a 0..1 proficiency per (kid, skill), with level-ups.
 
 Key guarantee (the spec's most opinionated piece): a correct answer pulls the score
-toward a *ceiling that depends on the difficulty level* — `level / max_level`. So you
-can never reach the "mastered" threshold by only answering easy (low-level) problems;
-the score for a skill stuck at level 1 of 3 asymptotes to 1/3. Only success at the top
-level can push the score to 1.0. Wrong answers apply a gentle proportional penalty.
+toward a *ceiling that depends on the difficulty level*. So you can never reach the
+"mastered" threshold by only answering easy (low-level) problems — only sustained
+success at the *top* level can push the score to 1.0. Wrong answers apply a gentle
+proportional penalty.
+
+The ceiling curve is `0.5 + 0.5 * (level-1)/(max_level-1)`: the bottom band always
+caps at 0.5 and the top band at 1.0, evenly spaced in between, *independent of how
+many bands a skill has*. This decoupling is deliberate — it lets us split a skill into
+many fine bands for a gentle ramp without quietly compressing its whole score/star
+scale (a naive `level/max_level` would push a level-1-of-5 band down to 0.2).
+
+The ramp is intentionally gradual: a kid dwells on each band for several reps (low
+learning rate + a 4-correct promotion streak) and the placement probe only nudges one
+band after a clean opening run, so difficulty rises in small, earned steps.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-ALPHA = 0.30          # base learning rate
+ALPHA = 0.20          # base learning rate (low on purpose: more reps per band)
 FAST_MULT = 1.2       # bonus rate when answered quickly
 ALPHA_CAP = 0.5
 PENALTY = 0.5         # wrong-answer penalty factor (gentle)
-PROMOTE_STREAK = 3    # consecutive correct needed to consider a level-up
+PROMOTE_STREAK = 4    # consecutive correct needed to consider a level-up
 PROMOTE_EPS = 0.05    # how close to the ceiling counts as "ready"
 MASTER_SCORE = 0.95
 RECENT_WINDOW = 5
 DEMOTE_MIN_CORRECT = 2  # < this many correct in the last RECENT_WINDOW -> demote
-PROBE_WINDOW = 2      # the first attempts on a fresh skill double as a placement probe
-PROBE_LEVEL = 2       # acing the probe starts the skill here instead of level 1
+PROBE_WINDOW = 4      # ace the first PROBE_WINDOW answers on a fresh skill -> nudge up
+PROBE_LEVEL = 2       # the probe only steps to band 2 (one earned step, never a vault)
 
 
 @dataclass
@@ -41,7 +51,13 @@ class MasteryUpdate:
 
 
 def level_ceiling(level: int, max_level: int) -> float:
-    return level / max_level
+    """Score cap for a given band. Bottom band caps at 0.5, top band at 1.0, evenly
+    spaced — independent of how many bands the skill has, so splitting a skill into
+    more (gentler) bands does not compress its score/star scale. A single-band skill
+    caps at 1.0."""
+    if max_level <= 1:
+        return 1.0
+    return 0.5 + 0.5 * (level - 1) / (max_level - 1)
 
 
 def _alpha(fast: bool) -> float:

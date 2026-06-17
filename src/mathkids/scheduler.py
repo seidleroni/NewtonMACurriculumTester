@@ -77,10 +77,23 @@ def compose_session(
     return _interleave(plan[:n])
 
 
+def _off_the_floor(slot: Slot) -> bool:
+    """A skill is 'settled enough' to let a new sibling unlock once it is mastered or
+    has climbed at least one band off its trivial entry floor (level >= 2). The deeper
+    pacing comes from the load cap plus the deliberately slow per-band leveling in
+    mastery.py; this gate just refuses to pile a brand-new skill on a kid who hasn't
+    even gotten off the floor of the skills already in play."""
+    return slot.mastered or slot.level >= 2
+
+
 def next_to_introduce(
-    slots: dict[str, Slot], sequence: list[str], max_active_unmastered: int = 4
+    slots: dict[str, Slot], sequence: list[str], max_active_unmastered: int = 3
 ) -> str | None:
-    """Return the next locked skill to introduce, or None if it's not time yet."""
+    """Return the next locked skill to introduce, or None if it's not time yet.
+
+    New skills are paced deliberately: never more than `max_active_unmastered` in play
+    at once, and a new one unlocks only when every current unmastered skill has climbed
+    off its entry floor (see `_off_the_floor`)."""
     introduced = set(slots)
     locked = [s for s in sequence if s not in introduced]
     if not locked:
@@ -88,10 +101,7 @@ def next_to_introduce(
     active_unmastered = [s for s in introduced if not slots[s].mastered]
     if len(active_unmastered) >= max_active_unmastered:
         return None
-    ready = all(
-        (slots[s].level >= 2 or slots[s].score >= 0.5 or slots[s].mastered)
-        for s in active_unmastered
-    )
+    ready = all(_off_the_floor(slots[s]) for s in active_unmastered)
     if active_unmastered and not ready:
         return None
     return locked[0]

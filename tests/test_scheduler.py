@@ -68,21 +68,25 @@ def test_compose_session_handles_all_mastered():
 
 
 def test_next_to_introduce_when_ready():
-    slots = {"A": slot("A", score=0.6)}
+    # "Settled enough" = off the entry floor (level >= 2), regardless of score.
+    slots = {"A": slot("A", level=2)}
     assert next_to_introduce(slots, SEQ) == "B"
 
 
-def test_next_to_introduce_blocks_when_not_ready():
-    slots = {"A": slot("A", score=0.2, level=1)}
+def test_next_to_introduce_blocks_on_floor():
+    # Still on the bottom band (level 1) — even a decent score does not unlock a sibling.
+    slots = {"A": slot("A", score=0.49, level=1)}
     assert next_to_introduce(slots, SEQ) is None
 
 
 def test_next_to_introduce_none_when_all_introduced():
-    slots = {s: slot(s, score=0.6) for s in SEQ}
+    slots = {s: slot(s, level=2) for s in SEQ}
     assert next_to_introduce(slots, SEQ) is None
 
 
 def test_next_to_introduce_respects_active_load_cap():
     seq = ["A", "B", "C", "D", "E", "F"]
-    slots = {s: slot(s, score=0.6) for s in seq[:4]}  # 4 active unmastered
-    assert next_to_introduce(slots, seq, max_active_unmastered=4) is None
+    slots = {s: slot(s, level=2) for s in seq[:3]}  # 3 active unmastered (the new default cap)
+    assert next_to_introduce(slots, seq) is None
+    # ...and an explicit higher cap still lets one through.
+    assert next_to_introduce(slots, seq, max_active_unmastered=4) == "D"

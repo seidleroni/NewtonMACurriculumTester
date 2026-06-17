@@ -11,12 +11,23 @@ from mathkids.mastery import (
 
 
 def test_score_is_capped_by_level_ceiling():
-    # Only-easy success can never approach mastery: level 1 of 3 asymptotes to 1/3.
+    # Only-easy success can never approach mastery: the bottom band caps at 0.5.
     score = 0.0
     for _ in range(500):
         score = update_score(score, level=1, max_level=3, correct=True)
     assert score <= level_ceiling(1, 3) + 1e-9
-    assert score > 0.30  # it does climb toward the ceiling
+    assert score > 0.45  # it does climb toward the 0.5 ceiling
+
+
+def test_ceiling_curve_is_independent_of_band_count():
+    # Bottom band always 0.5, top band always 1.0, regardless of how many bands.
+    for ml in (2, 3, 4, 5):
+        assert level_ceiling(1, ml) == 0.5
+        assert level_ceiling(ml, ml) == 1.0
+    # ...and evenly spaced in between (a 5-band skill's middle band).
+    assert level_ceiling(3, 5) == 0.75
+    # A single-band skill caps at 1.0.
+    assert level_ceiling(1, 1) == 1.0
 
 
 def test_mid_level_ceiling():
@@ -65,10 +76,14 @@ def test_demotion_after_a_bad_run():
 
 
 def test_placement_probe_promotes_after_acing_first_attempts():
+    # The probe now needs a clean run of PROBE_WINDOW (4) correct answers, and only
+    # steps up one band (to level 2) — it never vaults further.
     state = MasteryState()
     upd = apply_attempt(state, max_level=3, correct=True, attempt_index=0)
-    assert upd.state.level == 1
     upd = apply_attempt(upd.state, max_level=3, correct=True, attempt_index=1)
+    upd = apply_attempt(upd.state, max_level=3, correct=True, attempt_index=2)
+    assert upd.state.level == 1  # not yet — only 3 in a row
+    upd = apply_attempt(upd.state, max_level=3, correct=True, attempt_index=3)
     assert upd.state.level == 2
     assert upd.leveled_up
 
@@ -76,8 +91,9 @@ def test_placement_probe_promotes_after_acing_first_attempts():
 def test_placement_probe_requires_every_probe_attempt_correct():
     state = MasteryState()
     upd = apply_attempt(state, max_level=3, correct=False, attempt_index=0)
-    upd = apply_attempt(upd.state, max_level=3, correct=True, attempt_index=1)
-    assert upd.state.level == 1
+    for i in (1, 2, 3):
+        upd = apply_attempt(upd.state, max_level=3, correct=True, attempt_index=i)
+    assert upd.state.level == 1  # the early miss disqualifies the probe
 
 
 def test_placement_probe_never_fires_later():
@@ -113,8 +129,10 @@ def test_fifth_star_unlocks_at_mastery():
 
 
 def test_stars_cannot_reach_five_at_low_level():
-    # Highest reachable score at level 1 of 3 is ~1/3 -> at most 1 star.
+    # Highest reachable score at the bottom band is 0.5 -> at most 2 stars; the 5th
+    # star still requires top-level mastery.
     score = 0.0
     for _ in range(500):
         score = update_score(score, level=1, max_level=3, correct=True)
-    assert stars(score) <= 1
+    assert stars(score) <= 2
+    assert stars(score) < 5
