@@ -5,9 +5,16 @@
 - Run Python through **`uv`**, not the interpreter directly: `uv run pytest tests/`, `uv run python -m tools.simulate_ramp`, etc. (Bare `python` is not on PATH — the Windows Store stub intercepts it — and we standardize on uv for env consistency.)
 - There is no sqlite3 CLI installed; query the DB through Python's `sqlite3` module.
 
-## Database (mathkids.db)
+## Database
 
-SQLite file at the repo root. Daily backups land in `backups/mathkids-YYYY-MM-DD.db`.
+Two backends behind the same async helpers in `db.py` (all take a `SqliteDB`/`D1DB` adapter
+as their first argument): local dev/tests use the SQLite file `mathkids.db` at the repo root;
+the deployed app (Cloudflare Workers) uses D1. Schema source of truth is
+`migrations/0001_init.sql`. Query the deployed data with
+`npx wrangler d1 execute mathkids --remote --command "..." --json`.
+
+After the Cloudflare cutover, **remote D1 is the system of record** — the local
+`mathkids.db` is a stale pre-migration snapshot kept for dev.
 
 Tables:
 - `kid` — id, name, grade, emoji, daily_goal. (Jacob = grade 2, Samuel = grade 4.)
@@ -27,6 +34,9 @@ WHERE a.correct = 0 ORDER BY a.created_at;
 
 ## Gotchas
 
-- Problems are regenerated deterministically from (skill, level, seed) at grading time. If you change a generator while the app is running, restart it before a kid answers an in-flight question, or the regenerated problem won't match what was shown.
+- Problems are regenerated deterministically from (skill, level, seed) at grading time. If you change a generator while the app is running, restart it (locally) or redeploy (Workers) before a kid answers an in-flight question, or the regenerated problem won't match what was shown.
+- Problem figures are client-side SVG: generators put a JSON spec in `payload["image"]`; `public/static/images.js` renders it. Adding an image kind means adding a renderer there (Pillow is gone).
+- Templates are baked into `src/mathkids/_templates_embedded.py` for the Workers bundle by `tools/embed_templates.py` (wrangler runs it automatically on dev/deploy; the file is gitignored). Local uvicorn reads the live template files, so only Workers deploys depend on it.
+- "Today" (`db.today_ordinal()`) is America/New_York, not the machine/UTC date.
 - Questions must require only a single answer in one input box (or one multiple-choice pick). No "list all the factors" / "next three numbers" formats — the kids find multi-answer entry confusing. `SequenceAnswer`/`SetAnswer` still exist in `answers.py` but no skill should use them.
 - Prompt wording should be concrete and kid-friendly: prefer story problems with names/objects over abstract phrasing ("A number is 4 times as many as 2"), and plain words over math-register ones ("how much is the digit worth" rather than "the value of the digit").

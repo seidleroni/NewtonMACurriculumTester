@@ -1,42 +1,83 @@
-"""FastAPI app: the daily loop + dashboards, server-rendered (classic form posts)."""
+"""FastAPI app: the daily loop + dashboards, server-rendered (classic form posts).
+
+Runs in two environments: locally under uvicorn against sqlite (``uv run
+mathkids``), and on Cloudflare Workers against D1 (``src/worker.py`` is the
+entry point there; the D1 binding arrives per-request via request.scope["env"]).
+"""
 
 from __future__ import annotations
 
 import json
 import random
+import sys
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import jinja2
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import RedirectResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from mathkids import assets, db
+from mathkids import db
 from mathkids.engine import REGISTRY, SEQUENCES, Problem
 from mathkids.mastery import MasteryState, apply_attempt, is_mastered, stars
 from mathkids.scheduler import Slot, compose_session, next_due, next_to_introduce, update_box
 
 FAST_MS = 8000  # answers quicker than this earn the speed bonus
 
+IS_WORKERS = sys.platform == "emscripten"  # Pyodide (the Workers runtime)
+
 BASE = Path(__file__).parent
-templates = Jinja2Templates(directory=str(BASE / "templates"))
+
+
+def _jinja_env() -> jinja2.Environment:
+    # The Workers bundle carries only .py modules, so templates ship baked into
+    # a generated module (tools/embed_templates.py, run by wrangler's build
+    # hook). Local dev reads the live files.
+    if IS_WORKERS:
+        from mathkids._templates_embedded import TEMPLATES
+
+        loader: jinja2.BaseLoader = jinja2.DictLoader(TEMPLATES)
+    else:
+        loader = jinja2.FileSystemLoader(str(BASE / "templates"))
+    return jinja2.Environment(loader=loader, autoescape=True)
+
+
+templates = Jinja2Templates(env=_jinja_env())
 templates.env.globals["star_bar"] = lambda n: "★" * int(n) + "☆" * (5 - int(n))
+
 
 @asynccontextmanager
 async def lifespan(_app: "FastAPI"):
-    conn = db.connect()
-    db.init_db(conn)
-    conn.close()
+    if not IS_WORKERS:  # on Workers the schema comes from D1 migrations
+        dbx = db.SqliteDB()
+        await db.init_db(dbx)
+        dbx.close()
     yield
 
 
 app = FastAPI(title="Newton Math", lifespan=lifespan)
-app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
+
+if not IS_WORKERS:  # on Workers, /static/* is served from the edge (wrangler assets)
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount(
+        "/static",
+        StaticFiles(directory=str(BASE.parents[1] / "public" / "static")),
+        name="static",
+    )
 
 
 # --- helpers --------------------------------------------------------------
+
+def database(request: Request):
+    """Pick the storage backend for this request: D1 on Workers, sqlite locally."""
+    env = request.scope.get("env")
+    if env is not None:
+        return db.D1DB(env.DB)
+    return db.SqliteDB()
+
 
 def grade_sequence(grade: int) -> list[str]:
     return SEQUENCES.get(grade, [])
@@ -61,15 +102,15 @@ def build_slots(states: dict, sequence: list[str]) -> dict[str, Slot]:
     }
 
 
-def ensure_introductions(conn, kid_id: int, sequence: list[str], today: int, now: str) -> None:
-    states = db.get_skill_states(conn, kid_id)
+async def ensure_introductions(dbx, kid_id: int, sequence: list[str], today: int, now: str) -> None:
+    states = await db.get_skill_states(dbx, kid_id)
     if not states:
         for sid in sequence[:2]:
-            db.introduce_skill(conn, kid_id, sid, today, now)
+            await db.introduce_skill(dbx, kid_id, sid, today, now)
         return
     nxt = next_to_introduce(build_slots(states, sequence), sequence)
     if nxt:
-        db.introduce_skill(conn, kid_id, nxt, today, now)
+        await db.introduce_skill(dbx, kid_id, nxt, today, now)
 
 
 def regenerate(item: dict) -> Problem:
@@ -95,69 +136,68 @@ def celebration_headline(num_correct: int, answered: int) -> tuple[str, str]:
 # --- routes ---------------------------------------------------------------
 
 @app.get("/")
-def index(request: Request):
-    conn = db.connect()
+async def index(request: Request):
+    dbx = database(request)
     try:
         kids = []
-        for kid in db.get_kids(conn):
-            started = len(db.get_skill_states(conn, kid["id"]))
+        for kid in await db.get_kids(dbx):
+            started = len(await db.get_skill_states(dbx, kid["id"]))
             kids.append({"row": kid, "started": started})
         return templates.TemplateResponse(request, "index.html", {"kids": kids})
     finally:
-        conn.close()
+        dbx.close()
 
 
 @app.post("/kid/{kid_id}/start")
-def start(kid_id: int):
-    conn = db.connect()
+async def start(request: Request, kid_id: int):
+    dbx = database(request)
     try:
-        kid = db.get_kid(conn, kid_id)
+        kid = await db.get_kid(dbx, kid_id)
         if kid is None:
             return RedirectResponse("/", status_code=303)
         today, now = db.today_ordinal(), db.now_iso()
-        active = db.get_active_session(conn, kid_id)
+        active = await db.get_active_session(dbx, kid_id)
         if active is not None:
             # Resume today's unfinished set rather than discarding its progress;
             # a leftover set from a previous day is closed and replanned fresh.
             if active["day"] == today and active["answered"] < len(json.loads(active["plan"])):
                 return RedirectResponse(f"/kid/{kid_id}/play", status_code=303)
-            db.end_session(conn, active["id"], now)
+            await db.end_session(dbx, active["id"], now)
         sequence = grade_sequence(kid["grade"])
-        ensure_introductions(conn, kid_id, sequence, today, now)
-        states = db.get_skill_states(conn, kid_id)
+        await ensure_introductions(dbx, kid_id, sequence, today, now)
+        states = await db.get_skill_states(dbx, kid_id)
         slots = build_slots(states, sequence)
         plan_ids = compose_session(slots, sequence, today, n=kid["daily_goal"])
-        session_id = db.create_session(conn, kid_id, "[]", today, now)
+        session_id = await db.create_session(dbx, kid_id, "[]", today, now)
         plan = [
             {"skill": sid, "level": slots[sid].level, "seed": session_id * 1000 + i}
             for i, sid in enumerate(plan_ids)
         ]
-        db.update_session_plan(conn, session_id, json.dumps(plan))
+        await db.update_session_plan(dbx, session_id, json.dumps(plan))
         return RedirectResponse(f"/kid/{kid_id}/play", status_code=303)
     finally:
-        conn.close()
+        dbx.close()
 
 
 @app.get("/kid/{kid_id}/play")
-def play(request: Request, kid_id: int):
-    conn = db.connect()
+async def play(request: Request, kid_id: int):
+    dbx = database(request)
     try:
-        kid = db.get_kid(conn, kid_id)
+        kid = await db.get_kid(dbx, kid_id)
         if kid is None:
             return RedirectResponse("/", status_code=303)
-        session = db.get_active_session(conn, kid_id)
+        session = await db.get_active_session(dbx, kid_id)
         if session is None:
             return RedirectResponse("/", status_code=303)
         plan = json.loads(session["plan"])
         idx = session["answered"]
         if idx >= len(plan):
-            db.end_session(conn, session["id"], db.now_iso())
-            db.backup_db(conn)
+            await db.end_session(dbx, session["id"], db.now_iso())
             return RedirectResponse(f"/kid/{kid_id}/done", status_code=303)
 
         item = plan[idx]
         skill = REGISTRY[item["skill"]]
-        st = db.get_skill_state(conn, kid_id, skill.id)
+        st = await db.get_skill_state(dbx, kid_id, skill.id)
         if st["lesson_seen"] == 0:
             return templates.TemplateResponse(
                 request,
@@ -166,7 +206,9 @@ def play(request: Request, kid_id: int):
             )
 
         problem = regenerate(item)
-        image_uri = assets.data_uri(problem.payload["image"]) if problem.payload.get("image") else None
+        image_spec = (
+            json.dumps(problem.payload["image"]) if problem.payload.get("image") else None
+        )
         return templates.TemplateResponse(
             request,
             "problem.html",
@@ -174,7 +216,7 @@ def play(request: Request, kid_id: int):
                 "kid": kid,
                 "skill": skill,
                 "problem": problem,
-                "image_uri": image_uri,
+                "image_spec": image_spec,
                 "idx": idx,
                 "num": idx + 1,
                 "total": len(plan),
@@ -184,31 +226,31 @@ def play(request: Request, kid_id: int):
             },
         )
     finally:
-        conn.close()
+        dbx.close()
 
 
 @app.post("/kid/{kid_id}/seen")
-def seen(kid_id: int, skill_id: str = Form(...)):
-    conn = db.connect()
+async def seen(request: Request, kid_id: int, skill_id: str = Form(...)):
+    dbx = database(request)
     try:
-        db.save_skill_state(conn, kid_id, skill_id, lesson_seen=1)
+        await db.save_skill_state(dbx, kid_id, skill_id, lesson_seen=1)
         return RedirectResponse(f"/kid/{kid_id}/play", status_code=303)
     finally:
-        conn.close()
+        dbx.close()
 
 
 @app.post("/kid/{kid_id}/answer")
-def answer(
+async def answer(
     request: Request,
     kid_id: int,
     idx: int = Form(...),
     answer: str = Form(""),
     ms: int = Form(0),
 ):
-    conn = db.connect()
+    dbx = database(request)
     try:
-        kid = db.get_kid(conn, kid_id)
-        session = db.get_active_session(conn, kid_id)
+        kid = await db.get_kid(dbx, kid_id)
+        session = await db.get_active_session(dbx, kid_id)
         if kid is None or session is None:
             return RedirectResponse("/", status_code=303)
         plan = json.loads(session["plan"])
@@ -222,7 +264,7 @@ def answer(
         correct = result.correct
         fast = 0 < ms < FAST_MS
 
-        st = db.get_skill_state(conn, kid_id, skill.id)
+        st = await db.get_skill_state(dbx, kid_id, skill.id)
         ms_state = MasteryState(
             score=st["score"],
             level=st["level"],
@@ -238,12 +280,12 @@ def answer(
             for it in plan[idx + 1 :]:
                 if it["skill"] == skill.id:
                     it["level"] = upd.state.level
-            db.update_session_plan(conn, session["id"], json.dumps(plan))
+            await db.update_session_plan(dbx, session["id"], json.dumps(plan))
         new_box = update_box(st["box"], correct)
         now = db.now_iso()
         today = db.today_ordinal()
-        db.save_skill_state(
-            conn,
+        await db.save_skill_state(
+            dbx,
             kid_id,
             skill.id,
             score=upd.state.score,
@@ -257,12 +299,12 @@ def answer(
             last_seen_at=now,
             mastered_at=now if upd.mastered_now else st["mastered_at"],
         )
-        db.record_attempt(
-            conn, kid_id, skill.id, session["id"], item["level"], problem.prompt,
+        await db.record_attempt(
+            dbx, kid_id, skill.id, session["id"], item["level"], problem.prompt,
             result.expected_display, result.given_display, correct, ms, today, now,
         )
-        db.advance_session(
-            conn, session["id"], idx + 1, session["num_correct"] + int(correct)
+        await db.advance_session(
+            dbx, session["id"], idx + 1, session["num_correct"] + int(correct)
         )
 
         return templates.TemplateResponse(
@@ -282,18 +324,18 @@ def answer(
             },
         )
     finally:
-        conn.close()
+        dbx.close()
 
 
 @app.get("/kid/{kid_id}/done")
-def done(request: Request, kid_id: int):
-    conn = db.connect()
+async def done(request: Request, kid_id: int):
+    dbx = database(request)
     try:
-        kid = db.get_kid(conn, kid_id)
+        kid = await db.get_kid(dbx, kid_id)
         if kid is None:
             return RedirectResponse("/", status_code=303)
-        session = db.get_latest_session(conn, kid_id)
-        states = db.get_skill_states(conn, kid_id)
+        session = await db.get_latest_session(dbx, kid_id)
+        states = await db.get_skill_states(dbx, kid_id)
         sequence = grade_sequence(kid["grade"])
         nxt = next_to_introduce(build_slots(states, sequence), sequence)
 
@@ -331,7 +373,7 @@ def done(request: Request, kid_id: int):
         # kid's lifetime total past a multiple of 100?
         milestone = None
         if session:
-            total = db.total_attempts(conn, kid_id)
+            total = await db.total_attempts(dbx, kid_id)
             before = total - session["answered"]
             if total >= 100 and total // 100 > before // 100:
                 milestone = total // 100 * 100
@@ -351,17 +393,17 @@ def done(request: Request, kid_id: int):
             },
         )
     finally:
-        conn.close()
+        dbx.close()
 
 
 @app.get("/kid/{kid_id}")
-def kid_dashboard(request: Request, kid_id: int):
-    conn = db.connect()
+async def kid_dashboard(request: Request, kid_id: int):
+    dbx = database(request)
     try:
-        kid = db.get_kid(conn, kid_id)
+        kid = await db.get_kid(dbx, kid_id)
         if kid is None:
             return RedirectResponse("/", status_code=303)
-        states = db.get_skill_states(conn, kid_id)
+        states = await db.get_skill_states(dbx, kid_id)
         sequence = grade_sequence(kid["grade"])
         skills = []
         for sid in sequence:
@@ -377,7 +419,7 @@ def kid_dashboard(request: Request, kid_id: int):
                         "level": row["level"],
                         "max_level": sk.max_level,
                         "mastered": is_mastered(row["score"], row["level"], sk.max_level),
-                        "recent": db.recent_correctness(conn, kid_id, sid, 8),
+                        "recent": await db.recent_correctness(dbx, kid_id, sid, 8),
                     }
                 )
             else:
@@ -392,17 +434,17 @@ def kid_dashboard(request: Request, kid_id: int):
             },
         )
     finally:
-        conn.close()
+        dbx.close()
 
 
 @app.get("/parent")
-def parent(request: Request):
-    conn = db.connect()
+async def parent(request: Request):
+    dbx = database(request)
     try:
         today = db.today_ordinal()
         kids_data = []
-        for kid in db.get_kids(conn):
-            states = db.get_skill_states(conn, kid["id"])
+        for kid in await db.get_kids(dbx):
+            states = await db.get_skill_states(dbx, kid["id"])
             sequence = grade_sequence(kid["grade"])
             introduced = [sid for sid in sequence if sid in states]
 
@@ -431,7 +473,7 @@ def parent(request: Request):
                 {
                     "kid": kid,
                     "domains": domains,
-                    "week": db.week_stats(conn, kid["id"], today),
+                    "week": await db.week_stats(dbx, kid["id"], today),
                     "focus": focus,
                     "trouble": trouble,
                 }
@@ -440,7 +482,7 @@ def parent(request: Request):
             request, "parent_dashboard.html", {"kids_data": kids_data}
         )
     finally:
-        conn.close()
+        dbx.close()
 
 
 def main() -> None:  # pragma: no cover - entry point

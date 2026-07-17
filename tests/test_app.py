@@ -1,5 +1,6 @@
 """End-to-end: drive the real daily loop through HTTP against a temp database."""
 
+import asyncio
 import json
 
 import pytest
@@ -10,21 +11,26 @@ from mathkids.app import app, celebration_headline, regenerate
 from mathkids.engine import REGISTRY
 
 
+def run(coro):
+    """Drive the async db helpers from sync test code."""
+    return asyncio.run(coro)
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("MATHKIDS_DB", str(tmp_path / "test.db"))
-    conn = db.connect()
-    db.init_db(conn)
-    db.create_kid(conn, "Jacob", 2, "🦖", 12)
-    conn.close()
+    dbx = db.SqliteDB()
+    run(db.init_db(dbx))
+    run(db.create_kid(dbx, "Jacob", 2, "🦖", 12))
+    dbx.close()
     with TestClient(app) as c:
         yield c
 
 
 def _current_item(kid_id):
-    conn = db.connect()
+    dbx = db.SqliteDB()
     try:
-        session = db.get_active_session(conn, kid_id)
+        session = run(db.get_active_session(dbx, kid_id))
         if session is None:
             return None
         plan = json.loads(session["plan"])
@@ -33,16 +39,16 @@ def _current_item(kid_id):
             return None
         return idx, plan[idx]
     finally:
-        conn.close()
+        dbx.close()
 
 
 def _lesson_seen(kid_id, skill_id):
-    conn = db.connect()
+    dbx = db.SqliteDB()
     try:
-        row = db.get_skill_state(conn, kid_id, skill_id)
+        row = run(db.get_skill_state(dbx, kid_id, skill_id))
         return row["lesson_seen"] if row else 0
     finally:
-        conn.close()
+        dbx.close()
 
 
 def test_landing_page_lists_kid(client):
@@ -99,17 +105,13 @@ def test_full_daily_loop(client, tmp_path):
     assert client.get("/parent").status_code == 200
 
     # State actually persisted.
-    conn = db.connect()
+    dbx = db.SqliteDB()
     try:
-        states = db.get_skill_states(conn, kid_id)
+        states = run(db.get_skill_states(dbx, kid_id))
     finally:
-        conn.close()
+        dbx.close()
     assert states
     assert any(row["attempts"] > 0 for row in states.values())
-
-    # Finishing the session wrote exactly one dated backup of the DB.
-    backups = list((tmp_path / "backups").glob("test-*.db"))
-    assert len(backups) == 1
 
 
 def test_probe_promotes_and_updates_remaining_plan_items(client):
@@ -132,12 +134,12 @@ def test_probe_promotes_and_updates_remaining_plan_items(client):
             f"/kid/{kid_id}/answer",
             data={"idx": idx, "answer": problem.answer.canonical(), "ms": 1500},
         )
-        conn = db.connect()
+        dbx = db.SqliteDB()
         try:
-            st = db.get_skill_state(conn, kid_id, skill_id)
-            session = db.get_active_session(conn, kid_id)
+            st = run(db.get_skill_state(dbx, kid_id, skill_id))
+            session = run(db.get_active_session(dbx, kid_id))
         finally:
-            conn.close()
+            dbx.close()
         if st["level"] == 2:
             promoted = skill_id
             plan = json.loads(session["plan"])
@@ -166,21 +168,21 @@ def test_start_resumes_same_day_session(client):
         )
         break
 
-    conn = db.connect()
+    dbx = db.SqliteDB()
     try:
-        before = db.get_active_session(conn, kid_id)
+        before = run(db.get_active_session(dbx, kid_id))
     finally:
-        conn.close()
+        dbx.close()
     assert before["answered"] == 1
 
     # Clicking "Start" again must resume the same session, not discard progress.
     r = client.post(f"/kid/{kid_id}/start")
     assert r.status_code == 200
-    conn = db.connect()
+    dbx = db.SqliteDB()
     try:
-        after = db.get_active_session(conn, kid_id)
+        after = run(db.get_active_session(dbx, kid_id))
     finally:
-        conn.close()
+        dbx.close()
     assert after["id"] == before["id"]
     assert after["answered"] == 1
 
@@ -188,27 +190,22 @@ def test_start_resumes_same_day_session(client):
 def test_start_replans_stale_previous_day_session(client):
     kid_id = 1
     client.post(f"/kid/{kid_id}/start")
-    conn = db.connect()
+    dbx = db.SqliteDB()
     try:
-        first = db.get_active_session(conn, kid_id)
+        first = run(db.get_active_session(dbx, kid_id))
         # Simulate the unfinished session being from yesterday.
-        conn.execute(
-            "UPDATE session SET day = day - 1 WHERE id = ?", (first["id"],)
-        )
-        conn.commit()
+        run(dbx.run("UPDATE session SET day = day - 1 WHERE id = ?", first["id"]))
     finally:
-        conn.close()
+        dbx.close()
 
     r = client.post(f"/kid/{kid_id}/start")
     assert r.status_code == 200
-    conn = db.connect()
+    dbx = db.SqliteDB()
     try:
-        active = db.get_active_session(conn, kid_id)
-        stale = conn.execute(
-            "SELECT * FROM session WHERE id = ?", (first["id"],)
-        ).fetchone()
+        active = run(db.get_active_session(dbx, kid_id))
+        stale = run(dbx.first("SELECT * FROM session WHERE id = ?", first["id"]))
     finally:
-        conn.close()
+        dbx.close()
     assert active["id"] != first["id"]
     assert stale["ended_at"] is not None
 
@@ -216,16 +213,16 @@ def test_start_replans_stale_previous_day_session(client):
 def test_multiple_choice_problem_renders_and_grades(client):
     """A Phase-3 MC skill shows radio options and grades the posted letter."""
     kid_id = 1
-    conn = db.connect()
+    dbx = db.SqliteDB()
     try:
         today, now = db.today_ordinal(), db.now_iso()
-        db.introduce_skill(conn, kid_id, "2.MD.A.1", today, now)
-        db.save_skill_state(conn, kid_id, "2.MD.A.1", lesson_seen=1)
-        session_id = db.create_session(conn, kid_id, "[]", today, now)
+        run(db.introduce_skill(dbx, kid_id, "2.MD.A.1", today, now))
+        run(db.save_skill_state(dbx, kid_id, "2.MD.A.1", lesson_seen=1))
+        session_id = run(db.create_session(dbx, kid_id, "[]", today, now))
         plan = [{"skill": "2.MD.A.1", "level": 1, "seed": session_id * 1000}]
-        db.update_session_plan(conn, session_id, json.dumps(plan))
+        run(db.update_session_plan(dbx, session_id, json.dumps(plan)))
     finally:
-        conn.close()
+        dbx.close()
 
     page = client.get(f"/kid/{kid_id}/play")
     assert page.status_code == 200
@@ -245,16 +242,16 @@ def test_comparator_problem_renders_as_buttons_and_grades(client):
     """Compare-with-<,=,> shows tappable sign buttons (no text box) and grades
     the posted symbol."""
     kid_id = 1
-    conn = db.connect()
+    dbx = db.SqliteDB()
     try:
         today, now = db.today_ordinal(), db.now_iso()
-        db.introduce_skill(conn, kid_id, "2.NBT.A.4", today, now)
-        db.save_skill_state(conn, kid_id, "2.NBT.A.4", lesson_seen=1)
-        session_id = db.create_session(conn, kid_id, "[]", today, now)
+        run(db.introduce_skill(dbx, kid_id, "2.NBT.A.4", today, now))
+        run(db.save_skill_state(dbx, kid_id, "2.NBT.A.4", lesson_seen=1))
+        session_id = run(db.create_session(dbx, kid_id, "[]", today, now))
         plan = [{"skill": "2.NBT.A.4", "level": 1, "seed": session_id * 1000}]
-        db.update_session_plan(conn, session_id, json.dumps(plan))
+        run(db.update_session_plan(dbx, session_id, json.dumps(plan)))
     finally:
-        conn.close()
+        dbx.close()
 
     page = client.get(f"/kid/{kid_id}/play")
     assert page.status_code == 200
@@ -282,29 +279,29 @@ def test_celebration_headline_tiers():
 
 def test_summary_shows_mastery_and_century_milestone(client):
     kid_id = 1
-    conn = db.connect()
+    dbx = db.SqliteDB()
     try:
         today, now = db.today_ordinal(), db.now_iso()
         # 98 attempts before today, then a finished 5-problem session today:
         # lifetime total 103 crosses the 100 mark during this session.
         for _ in range(98):
-            db.record_attempt(
-                conn, kid_id, "2.OA.B.2", None, 1, "p", "1", "1", True, 900,
+            run(db.record_attempt(
+                dbx, kid_id, "2.OA.B.2", None, 1, "p", "1", "1", True, 900,
                 today - 1, now,
-            )
-        session_id = db.create_session(conn, kid_id, "[]", today, now)
+            ))
+        session_id = run(db.create_session(dbx, kid_id, "[]", today, now))
         for _ in range(5):
-            db.record_attempt(
-                conn, kid_id, "2.OA.B.2", session_id, 1, "p", "1", "1", True, 900,
+            run(db.record_attempt(
+                dbx, kid_id, "2.OA.B.2", session_id, 1, "p", "1", "1", True, 900,
                 today, now,
-            )
-        db.advance_session(conn, session_id, 5, 4)
-        db.end_session(conn, session_id, now)
+            ))
+        run(db.advance_session(dbx, session_id, 5, 4))
+        run(db.end_session(dbx, session_id, now))
         # ...and a skill mastered today.
-        db.introduce_skill(conn, kid_id, "2.OA.B.2", today, now)
-        db.save_skill_state(conn, kid_id, "2.OA.B.2", mastered_at=now)
+        run(db.introduce_skill(dbx, kid_id, "2.OA.B.2", today, now))
+        run(db.save_skill_state(dbx, kid_id, "2.OA.B.2", mastered_at=now))
     finally:
-        conn.close()
+        dbx.close()
 
     r = client.get(f"/kid/{kid_id}/done")
     assert r.status_code == 200

@@ -1,0 +1,27 @@
+{
+	"$schema": "https://unpkg.com/wrangler/config-schema.json",
+	"name": "mathkids",
+	"main": "src/worker.py",
+	"compatibility_date": "2025-11-02",
+	"compatibility_flags": ["python_workers", "python_dedicated_snapshot"],
+	// Bake templates/*.html into an importable module before every dev/deploy:
+	// the Workers bundle only carries .py files.
+	"build": {
+		"command": "uv run python tools/embed_templates.py"
+	},
+	// Anything under public/ is served directly from the edge (before the
+	// Worker runs); everything else falls through to the app.
+	"assets": {
+		"directory": "./public"
+	},
+	"observability": {
+		"enabled": true
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "mathkids",
+			"database_id": "REPLACE_WITH_OUTPUT_OF_wrangler_d1_create"
+		}
+	]
+}
