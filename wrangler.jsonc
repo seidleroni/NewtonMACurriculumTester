@@ -21,7 +21,7 @@
 		{
 			"binding": "DB",
 			"database_name": "mathkids",
-			"database_id": "REPLACE_WITH_OUTPUT_OF_wrangler_d1_create"
+			"database_id": "7b9a778c-3801-43ef-97e4-2e1c48fb48d0"
 		}
 	]
 }
