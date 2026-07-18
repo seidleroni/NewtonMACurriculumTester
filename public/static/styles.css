@@ -104,6 +104,9 @@ h1, h2 { color: var(--accent); }
 .hint { margin-top: 18px; text-align: left; color: var(--muted); }
 .hint summary { cursor: pointer; }
 
+.domain-h { margin: 20px 0 2px; font-size: 17px; color: var(--accent); }
+.domain-h .stars { font-size: 13px; margin-left: 8px; vertical-align: 1px; }
+
 .skillmap { width: 100%; border-collapse: collapse; }
 .skillmap td { padding: 10px 6px; border-bottom: 1px solid #e8e3f2; }
 .skillmap .t { font-weight: 600; }
@@ -113,8 +116,6 @@ h1, h2 { color: var(--accent); }
 
 .kidblock { background: var(--card); border-radius: 18px; padding: 18px 22px; margin-bottom: 18px;
   box-shadow: 0 4px 14px rgba(80, 50, 140, 0.08); }
-.domains { width: 100%; }
-.domains td { padding: 4px 6px; }
 .week { color: var(--muted); }
 .trouble { color: var(--no); }
 

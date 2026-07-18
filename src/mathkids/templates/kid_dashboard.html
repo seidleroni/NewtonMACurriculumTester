@@ -4,8 +4,10 @@
 <p class="meta">⭐ {{ started }} skills started</p>
 
 <h2>My skill map</h2>
+{% for g in groups %}
+<h3 class="domain-h">{{ g.domain }}{% if g.started %} <span class="stars">{{ star_bar(g.avg_stars) }}</span>{% endif %}</h3>
 <table class="skillmap">
-  {% for s in skills %}
+  {% for s in g.skills %}
   <tr>
     <td class="t">{{ s.title }}</td>
     {% if s.introduced %}
@@ -18,6 +20,7 @@
   </tr>
   {% endfor %}
 </table>
+{% endfor %}
 
 <p class="footer"><a class="link" href="/">← back</a> · <a class="link" href="/parent">parent view</a></p>
 {% endblock %}

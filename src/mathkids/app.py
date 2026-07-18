@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import random
 import sys
-from collections import defaultdict
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -396,6 +395,39 @@ async def done(request: Request, kid_id: int):
         dbx.close()
 
 
+async def domain_groups(dbx, kid_id: int, states: dict, sequence: list[str]) -> list[dict]:
+    """Group a kid's skill sequence by Common Core domain, in curriculum order."""
+    groups: list[dict] = []
+    by_name: dict[str, dict] = {}
+    for sid in sequence:
+        sk = REGISTRY[sid]
+        g = by_name.get(sk.domain)
+        if g is None:
+            g = {"domain": sk.domain, "skills": [], "started": 0}
+            by_name[sk.domain] = g
+            groups.append(g)
+        row = states.get(sid)
+        if row:
+            g["started"] += 1
+            g["skills"].append(
+                {
+                    "title": sk.title,
+                    "introduced": True,
+                    "stars": stars(row["score"]),
+                    "level": row["level"],
+                    "max_level": sk.max_level,
+                    "mastered": is_mastered(row["score"], row["level"], sk.max_level),
+                    "recent": await db.recent_correctness(dbx, kid_id, sid, 8),
+                }
+            )
+        else:
+            g["skills"].append({"title": sk.title, "introduced": False})
+    for g in groups:
+        vals = [s["stars"] for s in g["skills"] if s["introduced"]]
+        g["avg_stars"] = round(sum(vals) / len(vals)) if vals else 0
+    return groups
+
+
 @app.get("/kid/{kid_id}")
 async def kid_dashboard(request: Request, kid_id: int):
     dbx = database(request)
@@ -405,31 +437,12 @@ async def kid_dashboard(request: Request, kid_id: int):
             return RedirectResponse("/", status_code=303)
         states = await db.get_skill_states(dbx, kid_id)
         sequence = grade_sequence(kid["grade"])
-        skills = []
-        for sid in sequence:
-            sk = REGISTRY[sid]
-            row = states.get(sid)
-            if row:
-                skills.append(
-                    {
-                        "title": sk.title,
-                        "domain": sk.domain,
-                        "introduced": True,
-                        "stars": stars(row["score"]),
-                        "level": row["level"],
-                        "max_level": sk.max_level,
-                        "mastered": is_mastered(row["score"], row["level"], sk.max_level),
-                        "recent": await db.recent_correctness(dbx, kid_id, sid, 8),
-                    }
-                )
-            else:
-                skills.append({"title": sk.title, "domain": sk.domain, "introduced": False})
         return templates.TemplateResponse(
             request,
             "kid_dashboard.html",
             {
                 "kid": kid,
-                "skills": skills,
+                "groups": await domain_groups(dbx, kid_id, states, sequence),
                 "started": sum(1 for sid in sequence if sid in states),
             },
         )
@@ -448,14 +461,6 @@ async def parent(request: Request):
             sequence = grade_sequence(kid["grade"])
             introduced = [sid for sid in sequence if sid in states]
 
-            by_domain: dict[str, list[int]] = defaultdict(list)
-            for sid in introduced:
-                by_domain[REGISTRY[sid].domain].append(stars(states[sid]["score"]))
-            domains = [
-                {"domain": d, "stars": round(sum(v) / len(v)) if v else 0}
-                for d, v in by_domain.items()
-            ]
-
             slots = build_slots(states, sequence)
             non_mastered = [sid for sid in sequence if sid in slots and not slots[sid].mastered]
             focus = REGISTRY[non_mastered[0]].title if non_mastered else None
@@ -472,7 +477,7 @@ async def parent(request: Request):
             kids_data.append(
                 {
                     "kid": kid,
-                    "domains": domains,
+                    "groups": await domain_groups(dbx, kid["id"], states, sequence),
                     "week": await db.week_stats(dbx, kid["id"], today),
                     "focus": focus,
                     "trouble": trouble,
