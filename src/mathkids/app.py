@@ -439,6 +439,7 @@ async def domain_groups(dbx, kid_id: int, states: dict, sequence: list[str]) -> 
             g["started"] += 1
             g["skills"].append(
                 {
+                    "id": sid,
                     "title": sk.title,
                     "introduced": True,
                     "stars": stars(row["score"]),
@@ -449,7 +450,7 @@ async def domain_groups(dbx, kid_id: int, states: dict, sequence: list[str]) -> 
                 }
             )
         else:
-            g["skills"].append({"title": sk.title, "introduced": False})
+            g["skills"].append({"id": sid, "title": sk.title, "introduced": False})
     for g in groups:
         vals = [s["stars"] for s in g["skills"] if s["introduced"]]
         g["avg_stars"] = round(sum(vals) / len(vals)) if vals else 0
@@ -491,7 +492,9 @@ async def parent(request: Request):
 
             slots = build_slots(states, sequence)
             non_mastered = [sid for sid in sequence if sid in slots and not slots[sid].mastered]
-            focus = REGISTRY[non_mastered[0]].title if non_mastered else None
+            focus = (
+                (REGISTRY[non_mastered[0]].title, non_mastered[0]) if non_mastered else None
+            )
 
             trouble = None
             worst = 2.0
@@ -500,7 +503,7 @@ async def parent(request: Request):
                 if row["attempts"] >= 3:
                     acc = row["correct"] / row["attempts"]
                     if acc < worst:
-                        worst, trouble = acc, (REGISTRY[sid].title, round(acc * 100))
+                        worst, trouble = acc, (REGISTRY[sid].title, round(acc * 100), sid)
 
             kids_data.append(
                 {

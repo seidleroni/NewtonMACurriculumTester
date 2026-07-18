@@ -108,6 +108,9 @@ h1, h2 { color: var(--accent); }
 .domain-h { margin: 20px 0 2px; font-size: 17px; color: var(--accent); }
 .domain-h .stars { font-size: 13px; margin-left: 8px; vertical-align: 1px; }
 
+.skillcode { font-family: Consolas, Menlo, monospace; font-size: 12px; font-weight: 400;
+  color: var(--muted); white-space: nowrap; }
+
 .skillmap { width: 100%; border-collapse: collapse; }
 .skillmap td { padding: 10px 6px; border-bottom: 1px solid #e8e3f2; }
 .skillmap .t { font-weight: 600; }

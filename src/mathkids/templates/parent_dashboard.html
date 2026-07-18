@@ -9,14 +9,14 @@
     {{ d.week.problems }} problems ·
     {% if d.week.problems %}{{ (100 * d.week.correct / d.week.problems) | round | int }}% correct{% else %}—{% endif %}
   </p>
-  {% if d.focus %}<p>Suggested focus: <b>{{ d.focus }}</b></p>{% endif %}
-  {% if d.trouble %}<p class="trouble">Trouble spot: {{ d.trouble[0] }} ({{ d.trouble[1] }}% correct)</p>{% endif %}
+  {% if d.focus %}<p>Suggested focus: <b>{{ d.focus[0] }}</b> <span class="skillcode">{{ d.focus[1] }}</span></p>{% endif %}
+  {% if d.trouble %}<p class="trouble">Trouble spot: {{ d.trouble[0] }} <span class="skillcode">{{ d.trouble[2] }}</span> ({{ d.trouble[1] }}% correct)</p>{% endif %}
   {% for g in d.groups %}
   <h3 class="domain-h">{{ g.domain }}{% if g.started %} <span class="stars">{{ star_bar(g.avg_stars) }}</span>{% endif %}</h3>
   <table class="skillmap">
     {% for s in g.skills if s.introduced %}
     <tr>
-      <td class="t">{{ s.title }}</td>
+      <td class="t">{{ s.title }} <span class="skillcode">{{ s.id }}</span></td>
       <td class="stars">{{ star_bar(s.stars) }}</td>
       <td class="lv">L{{ s.level }}/{{ s.max_level }}{% if s.mastered %} 🏅{% endif %}</td>
       <td class="trend" title="recent answers">{% for c in s.recent %}{{ '▰' if c else '▱' }}{% endfor %}</td>
