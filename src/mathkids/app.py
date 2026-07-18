@@ -43,8 +43,36 @@ def _jinja_env() -> jinja2.Environment:
     return jinja2.Environment(loader=loader, autoescape=True)
 
 
+def _build_version() -> str:
+    # On Workers the commit hash is baked in at deploy time (same build hook
+    # as the templates); locally ask git so the footer tracks the checkout.
+    if IS_WORKERS:
+        try:
+            from mathkids._build_info import COMMIT
+
+            return COMMIT
+        except ImportError:
+            return "unknown"
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=BASE,
+            timeout=5,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip() + " (local)"
+    except OSError:
+        pass
+    return "dev"
+
+
 templates = Jinja2Templates(env=_jinja_env())
 templates.env.globals["star_bar"] = lambda n: "★" * int(n) + "☆" * (5 - int(n))
+templates.env.globals["build_version"] = _build_version()
 
 
 @asynccontextmanager
