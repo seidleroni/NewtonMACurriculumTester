@@ -62,51 +62,49 @@ tests/           # property + unit + endpoint tests
 > Problem figures are drawn client-side by `public/static/images.js` from a JSON spec the
 > generator puts in `payload["image"]` — same geometry the old Pillow renderer produced.
 
-## Deploy to Cloudflare (free tier)
+## Production (Cloudflare, free tier)
 
-The deployed app is the same FastAPI code running as a **Python Worker** with **D1** (serverless
-SQLite) for storage and **Cloudflare Access** as the family login. One-time setup:
+**The app is live at https://mathkids.seidmann.workers.dev** (cutover 2026-07-18). It's the
+same FastAPI code running as a **Python Worker**, with **D1** (serverless SQLite) as the system
+of record and **Cloudflare Access** as the family login (One-time PIN emailed to addresses on
+the Access allow-list; session lasts up to a month). The kids practice **only** on the deployed
+site — the local `mathkids.db` is a stale pre-cutover snapshot kept for dev.
 
-```bash
-# 1. Log in (opens a browser; free Cloudflare account is fine)
-npx wrangler login
+### Deploying
 
-# 2. Create the D1 database, then paste the printed database_id into wrangler.jsonc
-npx wrangler d1 create mathkids
-
-# 3. Create the schema in the real (remote) database
-npx wrangler d1 migrations apply mathkids --remote
-
-# 4. Copy the kids' local history into D1 (re-run both steps any time before cutover)
-uv run python tools/export_d1.py
-npx wrangler d1 execute mathkids --remote --file tools/d1_seed.sql
-
-# 5. Ship it
-uv run pywrangler deploy        # -> https://mathkids.<your-subdomain>.workers.dev
-```
-
-Then lock it down (Cloudflare dashboard, one time):
-
-1. **Workers & Pages → mathkids → Settings → Domains & Routes** → on the `workers.dev` route,
-   enable **Cloudflare Access**. (If the toggle isn't offered, attach a custom domain and create
-   a self-hosted Access application for it in Zero Trust instead.)
-2. **Zero Trust → Access → Applications** → the auto-created app → add one **Allow** policy:
-   *Include → Emails* → the family's email addresses (free for up to 50 users).
-3. Authentication: **One-time PIN** (emailed code, no identity provider needed).
-   Set the session duration to the maximum (1 month) so the kids rarely re-login.
-
-Day-to-day:
+Deploys are **manual** — pushing to GitHub does *not* update the site:
 
 ```bash
+uv run pywrangler deploy        # ship the current checkout to production (~30 s)
 uv run pywrangler dev           # local Workers runtime + local D1 at http://localhost:8787
-uv run pywrangler deploy        # redeploy after changes
 ```
 
-Notes:
-- "Today" for scheduling is computed in **America/New_York** regardless of where the Worker
-  runs, so Leitner due-dates roll over at midnight Eastern.
+Requires a one-time `npx wrangler login` on a new machine. The deploy bundles the code and
+templates only; it never touches the D1 data.
+
+### Managing access (who can log in)
+
+Zero Trust dashboard ([one.dash.cloudflare.com](https://one.dash.cloudflare.com)) →
+**Access → Applications → mathkids** → edit the Allow policy → *Include → Emails*. Session
+duration lives both on the policy and on the app's Details section (policy wins).
+
+### Data
+
+- Query production: `npx wrangler d1 execute mathkids --remote --command "..." --json`
 - Backups: D1 keeps ~30 days of point-in-time history (Time Travel). For a belt-and-braces
   copy, occasionally run:
   `npx wrangler d1 export mathkids --remote --output backups/mathkids-remote.sql`
-- The old local mode still works (`uv run mathkids` against `mathkids.db`) and is the dev loop;
-  after cutover, D1 is the system of record — don't practice in both.
+- "Today" for scheduling is computed in **America/New_York** regardless of where the Worker
+  runs, so Leitner due-dates roll over at midnight Eastern.
+
+### Recreating from scratch (reference)
+
+If the Cloudflare resources ever need to be rebuilt: `npx wrangler login` →
+`npx wrangler d1 create mathkids` (paste the printed `database_id` into `wrangler.jsonc`) →
+`npx wrangler d1 migrations apply mathkids --remote` → seed data
+(`uv run python tools/export_d1.py`, then
+`npx wrangler d1 execute mathkids --remote --file tools/d1_seed.sql`) →
+`uv run pywrangler deploy`. Then in the dashboard: **Workers & Pages → mathkids → Settings →
+Domains & Routes** → set the `workers.dev` route to **Restricted** (enables Cloudflare Access),
+and in Zero Trust give the auto-created app an Allow policy with the family's emails. Also turn
+off (or restrict) the **Preview** `*-mathkids...` URLs — they default to Public.

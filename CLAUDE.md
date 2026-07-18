@@ -5,6 +5,18 @@
 - Run Python through **`uv`**, not the interpreter directly: `uv run pytest tests/`, `uv run python -m tools.simulate_ramp`, etc. (Bare `python` is not on PATH — the Windows Store stub intercepts it — and we standardize on uv for env consistency.)
 - There is no sqlite3 CLI installed; query the DB through Python's `sqlite3` module.
 
+## Production / deploying
+
+The app is live at **https://mathkids.seidmann.workers.dev** (Python Worker + D1, cutover
+2026-07-18), behind Cloudflare Access (email allow-list + One-time PIN, managed in the Zero
+Trust dashboard — not configurable via wrangler).
+
+- **Deploy:** `uv run pywrangler deploy` (~30 s). Deploys are manual — pushing to GitHub does
+  **not** update the site. Docs-only changes don't need a deploy.
+- **Local Workers dev:** `uv run pywrangler dev` (localhost:8787, local D1). The plain local
+  app is `uv run mathkids` (uvicorn + `mathkids.db`).
+- Deploys never touch D1 data. Wrangler auth: one-time `npx wrangler login` per machine.
+
 ## Database
 
 Two backends behind the same async helpers in `db.py` (all take a `SqliteDB`/`D1DB` adapter
@@ -13,8 +25,9 @@ the deployed app (Cloudflare Workers) uses D1. Schema source of truth is
 `migrations/0001_init.sql`. Query the deployed data with
 `npx wrangler d1 execute mathkids --remote --command "..." --json`.
 
-After the Cloudflare cutover, **remote D1 is the system of record** — the local
-`mathkids.db` is a stale pre-migration snapshot kept for dev.
+Since the Cloudflare cutover (2026-07-18), **remote D1 is the system of record** — the local
+`mathkids.db` is a stale pre-migration snapshot kept for dev, and `.wrangler/state` local D1
+is throwaway test data (never export from it).
 
 Tables:
 - `kid` — id, name, grade, emoji, daily_goal. (Jacob = grade 2, Samuel = grade 4.)

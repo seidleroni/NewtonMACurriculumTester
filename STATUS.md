@@ -1,8 +1,8 @@
 # STATUS — what's built, what isn't, and the pathways forward
 
-Living status doc. Pairs with [`DESIGN.md`](DESIGN.md) (the full spec). Last updated 2026-06-09.
+Living status doc. Pairs with [`DESIGN.md`](DESIGN.md) (the full spec). Last updated 2026-07-18.
 
-Quick health: `uv run pytest` → **553 passing**, `uv run ruff check` clean. **80 math skills**
+Quick health: `uv run pytest` → **1004 passing**, `uv run ruff check` clean. **80 math skills**
 across Grades 2–4 (26 / 25 / 29) — the complete catalog. Every skill is structurally verified
 by a property test and its math was independently re-solved by an adversarial audit (0 wrong
 answers found); the Phase-3 shape cards were additionally verified geometrically (side lengths,
@@ -19,7 +19,8 @@ angles, parallelism recomputed from the raw vertices).
 | **2** | **Image-presented but auto-graded** math (clocks, number lines, grids, arrays, graphs, fraction bars) | ✅ done |
 | **3** | Fallbacks for open-reasoning / hands-on skills (multiple-choice reframes) | ✅ done (all 7 deferred standards covered as MC/image; no parent-scored queue needed) |
 | **4** | **Literacy** (and other subjects) on the same engine | ⛔ not started |
-| later | Web deployment, richer gamified UI, printables | ⛔ not started |
+| — | **Web deployment** (Cloudflare Workers + D1 + Access) | ✅ done — live at mathkids.seidmann.workers.dev since 2026-07-18 (see README "Production") |
+| later | Richer gamified UI, printables | ⛔ not started |
 
 > Subjects beyond math are **all Phase 4+**. The engine is subject-agnostic — a `Skill` doesn't
 > care if it's `2.NBT.B.5` or a spelling skill — so adding literacy is new skill modules, not a rewrite.
@@ -87,7 +88,6 @@ we assess the readable/typed/choosable half instead:
   introduction).
 - **Other grades**: only Grades 2–4 math. Grade 1 / Grade 5+ are not authored (engine supports them).
 - **Subjects beyond math** (literacy, etc.): not started — Phase 4.
-- **Web deployment**: app is local-only (`uv run mathkids`), by design for now. No auth/hosting.
 
 ---
 
