@@ -136,33 +136,45 @@ class AddSubWithin1000(Skill):
     @staticmethod
     def _no_carry_add(rng: random.Random) -> tuple[int, int]:
         """Two 3-digit addends whose every column sums to <= 9 (no carry)."""
-        h1 = rng.randint(1, 4); h2 = rng.randint(1, 9 - h1)
-        t1 = rng.randint(0, 4); t2 = rng.randint(0, 9 - t1)
-        o1 = rng.randint(0, 4); o2 = rng.randint(0, 9 - o1)
+        h1 = rng.randint(1, 4)
+        h2 = rng.randint(1, 9 - h1)
+        t1 = rng.randint(0, 4)
+        t2 = rng.randint(0, 9 - t1)
+        o1 = rng.randint(0, 4)
+        o2 = rng.randint(0, 9 - o1)
         return 100 * h1 + 10 * t1 + o1, 100 * h2 + 10 * t2 + o2
 
     @staticmethod
     def _carry_add(rng: random.Random) -> tuple[int, int]:
         """3-digit addition with a FORCED ones carry (no overflow past 999)."""
-        h1 = rng.randint(1, 4); h2 = rng.randint(1, 9 - h1)  # no hundreds carry-out
-        t1 = rng.randint(0, 3); t2 = rng.randint(0, 8 - t1)  # tens stay <= 9 with a carry
-        o1 = rng.randint(1, 9); o2 = rng.randint(10 - o1, 9)  # ones sum >= 10 -> carry
+        h1 = rng.randint(1, 4)
+        h2 = rng.randint(1, 9 - h1)  # no hundreds carry-out
+        t1 = rng.randint(0, 3)
+        t2 = rng.randint(0, 8 - t1)  # tens stay <= 9 with a carry
+        o1 = rng.randint(1, 9)
+        o2 = rng.randint(10 - o1, 9)  # ones sum >= 10 -> carry
         return 100 * h1 + 10 * t1 + o1, 100 * h2 + 10 * t2 + o2
 
     @staticmethod
     def _no_borrow_sub(rng: random.Random) -> tuple[int, int]:
         """Minuend > subtrahend with every minuend column >= its subtrahend column."""
-        h2 = rng.randint(1, 4); h1 = rng.randint(h2, 9)
-        t2 = rng.randint(0, 4); t1 = rng.randint(t2, 9)
-        o2 = rng.randint(0, 4); o1 = rng.randint(o2, 9)
+        h2 = rng.randint(1, 4)
+        h1 = rng.randint(h2, 9)
+        t2 = rng.randint(0, 4)
+        t1 = rng.randint(t2, 9)
+        o2 = rng.randint(0, 4)
+        o1 = rng.randint(o2, 9)
         return 100 * h1 + 10 * t1 + o1, 100 * h2 + 10 * t2 + o2
 
     @staticmethod
     def _borrow_sub(rng: random.Random) -> tuple[int, int]:
         """Subtraction with a FORCED ones borrow; leading digit greater so a > b."""
-        h2 = rng.randint(1, 7); h1 = rng.randint(h2 + 1, 9)  # a > b regardless of lower digits
-        t1 = rng.randint(0, 9); t2 = rng.randint(0, 9)
-        o1 = rng.randint(0, 8); o2 = rng.randint(o1 + 1, 9)  # subtrahend ones bigger -> borrow
+        h2 = rng.randint(1, 7)
+        h1 = rng.randint(h2 + 1, 9)  # a > b regardless of lower digits
+        t1 = rng.randint(0, 9)
+        t2 = rng.randint(0, 9)
+        o1 = rng.randint(0, 8)
+        o2 = rng.randint(o1 + 1, 9)  # subtrahend ones bigger -> borrow
         return 100 * h1 + 10 * t1 + o1, 100 * h2 + 10 * t2 + o2
 
     def invariant(self, problem: Problem) -> bool:

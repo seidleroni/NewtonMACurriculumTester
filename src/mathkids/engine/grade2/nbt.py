@@ -475,15 +475,21 @@ class AddSubWithin1000(Skill):
         # -> addition where only the ones carry -> full addition -> no-borrow
         # subtraction -> subtraction with borrowing.
         if level <= 1:
-            h1 = rng.randint(1, 8); h2 = rng.randint(1, 9 - h1)
-            t1 = rng.randint(0, 9); t2 = rng.randint(0, 9 - t1)
-            o1 = rng.randint(0, 9); o2 = rng.randint(0, 9 - o1)
+            h1 = rng.randint(1, 8)
+            h2 = rng.randint(1, 9 - h1)
+            t1 = rng.randint(0, 9)
+            t2 = rng.randint(0, 9 - t1)
+            o1 = rng.randint(0, 9)
+            o2 = rng.randint(0, 9 - o1)
             a, b = h1 * 100 + t1 * 10 + o1, h2 * 100 + t2 * 10 + o2
             op, ans = "+", a + b
         elif level == 2:
-            h1 = rng.randint(1, 8); h2 = rng.randint(1, 9 - h1)
-            t1 = rng.randint(0, 4); t2 = rng.randint(0, 8 - t1)  # tens stay safe even with a carry
-            o1 = rng.randint(0, 9); o2 = rng.randint(0, 9)        # ones may pass 9
+            h1 = rng.randint(1, 8)
+            h2 = rng.randint(1, 9 - h1)
+            t1 = rng.randint(0, 4)
+            t2 = rng.randint(0, 8 - t1)  # tens stay safe even with a carry
+            o1 = rng.randint(0, 9)
+            o2 = rng.randint(0, 9)  # ones may pass 9
             a, b = h1 * 100 + t1 * 10 + o1, h2 * 100 + t2 * 10 + o2
             op, ans = "+", a + b
         elif level == 3:
@@ -494,15 +500,23 @@ class AddSubWithin1000(Skill):
         elif level == 4:
             # Subtraction, no borrowing; hundreds strictly greater so a > b (never a
             # trivial zero) and every minuend column >= its subtrahend column.
-            hs = rng.randint(1, 8); ts = rng.randint(0, 9); os_ = rng.randint(0, 9)
-            hm = rng.randint(hs + 1, 9); tm = rng.randint(ts, 9); om = rng.randint(os_, 9)
+            hs = rng.randint(1, 8)
+            ts = rng.randint(0, 9)
+            os_ = rng.randint(0, 9)
+            hm = rng.randint(hs + 1, 9)
+            tm = rng.randint(ts, 9)
+            om = rng.randint(os_, 9)
             a, b = hm * 100 + tm * 10 + om, hs * 100 + ts * 10 + os_
             op, ans = "-", a - b
         else:
             # Subtraction that FORCES a borrow (the hardest): the subtrahend's ones digit
             # is larger than the minuend's, and its hundreds digit is smaller so a > b.
-            hm = rng.randint(2, 9); tm = rng.randint(0, 9); om = rng.randint(0, 8)
-            hs = rng.randint(1, hm - 1); ts = rng.randint(0, 9); os_ = rng.randint(om + 1, 9)
+            hm = rng.randint(2, 9)
+            tm = rng.randint(0, 9)
+            om = rng.randint(0, 8)
+            hs = rng.randint(1, hm - 1)
+            ts = rng.randint(0, 9)
+            os_ = rng.randint(om + 1, 9)
             a, b = hm * 100 + tm * 10 + om, hs * 100 + ts * 10 + os_
             op, ans = "-", a - b
         return Problem(
