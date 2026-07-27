@@ -27,6 +27,9 @@ src/mathkids/_build_info.py
 # generated dump of mathkids.db (kid data)
 tools/d1_seed.sql
 
+# Local Claude Code config (drop this line if we add settings worth sharing)
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db
