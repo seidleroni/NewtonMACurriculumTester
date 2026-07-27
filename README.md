@@ -85,8 +85,14 @@ templates only; it never touches the D1 data.
 ### Managing access (who can log in)
 
 Zero Trust dashboard ([one.dash.cloudflare.com](https://one.dash.cloudflare.com)) →
-**Access → Applications → mathkids** → edit the Allow policy → *Include → Emails*. Session
-duration lives both on the policy and on the app's Details section (policy wins).
+**Access → Applications**. There are **two** applications, both named *mathkids - Cloudflare
+Workers*: one for `mathkids.seidmann.workers.dev` and one for the `*-mathkids.seidmann.workers.dev`
+preview URLs. Each carries its own Allow policy, so adding or removing an address means editing
+**both** → edit the Allow policy → *Include → Emails*.
+
+Login is Cloudflare's built-in **One-time PIN** (the only identity provider configured).
+Sessions last **30 days** (`720h`, the API maximum); duration lives both on the policy and on
+the app's Details section (policy wins).
 
 ### Data
 
