@@ -5,7 +5,7 @@
 	"compatibility_date": "2025-11-02",
 	"compatibility_flags": ["python_workers", "python_dedicated_snapshot"],
 	// Enable only after applying 0002_learning.sql. Local uvicorn uses the same env var.
-	"vars": { "MATHKIDS_TEACHING": "0" },
+	"vars": { "MATHKIDS_TEACHING": "1" },
 	// Bake templates/*.html into an importable module before every dev/deploy:
 	// the Workers bundle only carries .py files.
 	"build": {

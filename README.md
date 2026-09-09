@@ -39,7 +39,8 @@ uv run ruff check       # lint
 The parent dashboard links to each child's **questions and answers by day**, grouped
 by problem set. It includes historical answers and new guided practice steps.
 See [LEARNING.md](LEARNING.md) for the arithmetic teaching gradient, database migration,
-and staged rollout. Teaching is disabled by default pending rollout.
+and staged rollout. Production teaching is enabled; local uvicorn requires
+`MATHKIDS_TEACHING=1` to opt in.
 
 ```
 src/worker.py    # Cloudflare Workers entry point (bridges workerd -> the FastAPI app)

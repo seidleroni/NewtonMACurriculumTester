@@ -31,7 +31,7 @@ Since the Cloudflare cutover (2026-07-18), **remote D1 is the system of record**
 is throwaway test data (never export from it).
 
 Tables:
-- `learning_state`, `learning_session`, `practice_activity`, `step_response` — additive arithmetic teaching state, immutable question snapshots, and raw step history. See [LEARNING.md](LEARNING.md) for rollout and migration details. Teaching defaults off; apply migration 0002 before deploying this code, even with teaching off.
+- `learning_state`, `learning_session`, `practice_activity`, `step_response` — additive arithmetic teaching state, immutable question snapshots, and raw step history. See [LEARNING.md](LEARNING.md) for rollout and migration details. Production teaching is enabled; local uvicorn defaults off. Apply migration 0002 before deploying this code to a new database, even with teaching off.
 - `kid` — id, name, grade, emoji, daily_goal. (Jacob = grade 2, Samuel = grade 4.)
 - `session` — one row per practice session: kid_id, plan, answered, num_correct, day, started_at/ended_at.
 - `attempt` — one row per question answered: kid_id, skill_id, session_id, level, prompt, expected, given, correct (0/1), response_ms, day, created_at. The full prompt text and the kid's literal answer are stored, so you can reconstruct exactly what they saw and typed.

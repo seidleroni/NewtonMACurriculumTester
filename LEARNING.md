@@ -78,7 +78,7 @@ legacy learner/attempt/mastery values and session fields (except retired-session
 end timestamps), checks SQLite integrity, and verifies a second migration is a no-op.
 Never use the stale repository database or local D1 as production input.
 
-## Rollout (not yet performed)
+## Rollout procedure
 
 1. Export a fresh remote D1 backup and rehearse on a copy.
 2. Apply `npx wrangler d1 migrations apply mathkids --remote`.
@@ -94,4 +94,7 @@ reverse the migration or restore an older database over new practice records.
 
 Validation against the September 9 snapshot preserved 375 attempts, two learners,
 and 18 mastery rows exactly. Two superseded open sessions were retired on the copy.
-No remote migration, feature activation, or deployment was performed.
+On September 9, the fresh pre-deployment backup passed the same rehearsal and
+production migration 0002 was applied. Wrangler configuration now enables teaching.
+The pre-deployment export is retained locally under
+`backups/mathkids-predeploy-20260909-learning.sql`.
