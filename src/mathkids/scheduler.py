@@ -57,7 +57,7 @@ def compose_session(
     non_mastered = [sid for sid in active if not slots[sid].mastered] or active
 
     due = sorted(
-        (sid for sid in non_mastered if slots[sid].due_at <= today_ordinal),
+        (sid for sid in active if slots[sid].due_at <= today_ordinal),
         key=lambda s: (slots[s].due_at, slots[s].score),
     )
     focus = non_mastered[0]

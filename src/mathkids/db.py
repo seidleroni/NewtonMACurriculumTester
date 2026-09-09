@@ -67,6 +67,11 @@ class SqliteDB:
     def close(self) -> None:
         self._conn.close()
 
+    async def batch(self, statements: list[tuple[str, tuple]]) -> list[int]:
+        """Execute all statements in one transaction, returning affected row counts."""
+        with self._conn:
+            return [self._conn.execute(sql, params).rowcount for sql, params in statements]
+
 
 class D1DB:
     """Cloudflare D1 binding (env.DB) behind the same interface."""
@@ -90,6 +95,12 @@ class D1DB:
 
     def close(self) -> None:  # the binding is owned by the runtime
         pass
+
+    async def batch(self, statements: list[tuple[str, tuple]]) -> list[int]:
+        results = await self._db.batch([
+            self._db.prepare(sql).bind(*params) for sql, params in statements
+        ])
+        return [int(result.meta.changes) for result in results]
 
 
 def _to_dict(row) -> dict:
@@ -179,6 +190,48 @@ async def record_attempt(
         kid_id, skill_id, session_id, level, prompt, expected, given, int(correct),
         response_ms, today, now,
     )
+
+
+async def submit_answer(
+    dbx, *, session: dict, skill_id: str, prior_attempts: int, plan: str,
+    state: dict, level: int, prompt: str, expected: str, given: str,
+    correct: bool, response_ms: int, today: int, now: str,
+) -> bool:
+    """Compare-and-swap the question and persist all its effects atomically.
+
+    Each dependent write is gated on the preceding write changing one row.
+    Keep these statements together: both SQLite and D1 batch roll back on error.
+    The skill attempt count also guards against a stale mastery snapshot.
+    """
+    kid_id, session_id = session["kid_id"], session["id"]
+    cols = ", ".join(f"{k} = ?" for k in state)
+    changes = await dbx.batch([
+        (
+            """UPDATE session SET answered = answered + 1,
+                      num_correct = num_correct + ?, plan = ?
+               WHERE id = ? AND answered = ? AND plan = ? AND ended_at IS NULL
+                 AND id = (SELECT MAX(id) FROM session
+                           WHERE kid_id = ? AND ended_at IS NULL)
+                 AND EXISTS (SELECT 1 FROM skill_state
+                             WHERE kid_id = ? AND skill_id = ? AND attempts = ?)""",
+            (int(correct), plan, session_id, session["answered"], session["plan"],
+             kid_id, kid_id, skill_id, prior_attempts),
+        ),
+        (
+            f"UPDATE skill_state SET {cols} "
+            "WHERE kid_id = ? AND skill_id = ? AND changes() = 1",
+            (*state.values(), kid_id, skill_id),
+        ),
+        (
+            """INSERT INTO attempt
+               (kid_id, skill_id, session_id, level, prompt, expected, given, correct,
+                response_ms, day, created_at)
+               SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE changes() = 1""",
+            (kid_id, skill_id, session_id, level, prompt, expected, given, int(correct),
+             response_ms, today, now),
+        ),
+    ])
+    return changes[0] == 1
 
 
 async def recent_correctness(dbx, kid_id: int, skill_id: str, limit: int = 10) -> list[int]:

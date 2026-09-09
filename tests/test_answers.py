@@ -43,6 +43,14 @@ def test_integer_canonical_round_trips():
     assert a.grade(a.canonical()).correct
 
 
+def test_integer_rejects_partial_numeric_values():
+    for raw in ["3.9", "3/4", "3 1/2", "3 + 1", "answer 3", "3,", "3e2", "3 apples 4"]:
+        assert not IntegerAnswer(3).grade(raw).correct, raw
+    assert not IntegerAnswer(1234).grade("12,34").correct
+    for raw in ["3 cm", "3cm", "3 square feet", "3°", "+3"]:
+        assert IntegerAnswer(3).grade(raw).correct, raw
+
+
 def test_fraction_accepts_reduced_and_unreduced():
     a = FractionAnswer(Fraction(1, 2))
     for raw in ["1/2", "2/4", "3/6", "4 / 8", " 50/100 "]:

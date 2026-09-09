@@ -47,17 +47,17 @@ class Answer:
         return self.canonical()
 
 
-_INT_RE = re.compile(r"-?\d[\d,]*")
+_INT_RE = re.compile(r"([+-]?(?:\d{1,3}(?:,\d{3})+|\d+))(?:\s*[A-Za-z°]+(?:\s+[A-Za-z]+)*)?")
 
 
 def _parse_int(raw: str) -> int | None:
     if raw is None:
         return None
-    m = _INT_RE.search(raw.strip())
+    m = _INT_RE.fullmatch(raw.strip())
     if not m:
         return None
     try:
-        return int(m.group(0).replace(",", ""))
+        return int(m.group(1).replace(",", ""))
     except ValueError:
         return None
 

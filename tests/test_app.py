@@ -4,6 +4,7 @@ import asyncio
 import json
 
 import pytest
+import httpx
 from fastapi.testclient import TestClient
 
 from mathkids import db
@@ -25,6 +26,14 @@ def client(tmp_path, monkeypatch):
     dbx.close()
     with TestClient(app) as c:
         yield c
+
+
+def _session_id(kid_id):
+    dbx = db.SqliteDB()
+    try:
+        return run(db.get_active_session(dbx, kid_id))["id"]
+    finally:
+        dbx.close()
 
 
 def _current_item(kid_id):
@@ -78,7 +87,7 @@ def test_full_daily_loop(client, tmp_path):
         problem = regenerate(it)
         if not wrong_checked:
             rw = client.post(
-                f"/kid/{kid_id}/answer", data={"idx": idx, "answer": "-1", "ms": 1500}
+                f"/kid/{kid_id}/answer", data={"session_id": _session_id(kid_id), "idx": idx, "answer": "-1", "ms": 1500}
             )
             assert rw.status_code == 200
             assert "Not quite" in rw.text
@@ -87,7 +96,7 @@ def test_full_daily_loop(client, tmp_path):
 
         rc = client.post(
             f"/kid/{kid_id}/answer",
-            data={"idx": idx, "answer": problem.answer.canonical(), "ms": 1500},
+            data={"session_id": _session_id(kid_id), "idx": idx, "answer": problem.answer.canonical(), "ms": 1500},
         )
         assert rc.status_code == 200
         assert "Yes" in rc.text
@@ -132,7 +141,7 @@ def test_probe_promotes_and_updates_remaining_plan_items(client):
         problem = regenerate(it)
         client.post(
             f"/kid/{kid_id}/answer",
-            data={"idx": idx, "answer": problem.answer.canonical(), "ms": 1500},
+            data={"session_id": _session_id(kid_id), "idx": idx, "answer": problem.answer.canonical(), "ms": 1500},
         )
         dbx = db.SqliteDB()
         try:
@@ -164,7 +173,7 @@ def test_start_resumes_same_day_session(client):
         problem = regenerate(it)
         client.post(
             f"/kid/{kid_id}/answer",
-            data={"idx": idx, "answer": problem.answer.canonical(), "ms": 1500},
+            data={"session_id": _session_id(kid_id), "idx": idx, "answer": problem.answer.canonical(), "ms": 1500},
         )
         break
 
@@ -232,7 +241,7 @@ def test_multiple_choice_problem_renders_and_grades(client):
     problem = regenerate(plan[0])
     r = client.post(
         f"/kid/{kid_id}/answer",
-        data={"idx": 0, "answer": problem.answer.canonical(), "ms": 1500},
+        data={"session_id": _session_id(kid_id), "idx": 0, "answer": problem.answer.canonical(), "ms": 1500},
     )
     assert r.status_code == 200
     assert "Yes" in r.text
@@ -262,7 +271,7 @@ def test_comparator_problem_renders_as_buttons_and_grades(client):
     problem = regenerate(plan[0])
     r = client.post(
         f"/kid/{kid_id}/answer",
-        data={"idx": 0, "answer": problem.answer.canonical(), "ms": 1500},
+        data={"session_id": _session_id(kid_id), "idx": 0, "answer": problem.answer.canonical(), "ms": 1500},
     )
     assert r.status_code == 200
     assert "Yes" in r.text
@@ -313,3 +322,92 @@ def test_unknown_kid_redirects_home(client):
     r = client.get("/kid/999/play")
     assert r.status_code == 200
     assert "Math Time" in r.text  # redirected to the landing page
+
+
+def test_problem_form_contains_session_identity(client):
+    client.post("/kid/1/start")
+    _, item = _current_item(1)
+    page = client.post("/kid/1/seen", data={"skill_id": item["skill"]})
+    assert f'name="session_id" value="{_session_id(1)}"' in page.text
+
+
+def test_old_or_missing_session_identity_does_not_record_answer(client):
+    client.post("/kid/1/start")
+    old_id = _session_id(1)
+    dbx = db.SqliteDB()
+    try:
+        run(dbx.run("UPDATE session SET day = day - 1 WHERE id = ?", old_id))
+        client.post("/kid/1/start")
+        assert _session_id(1) != old_id
+        for data in ({"idx": 0, "session_id": old_id}, {"idx": 0}):
+            response = client.post("/kid/1/answer", data={**data, "answer": "5"},
+                                   follow_redirects=False)
+            assert response.status_code == 303
+        assert run(db.total_attempts(dbx, 1)) == 0
+        assert run(db.get_active_session(dbx, 1))["answered"] == 0
+    finally:
+        dbx.close()
+
+
+def test_concurrent_duplicate_answers_only_commit_once(client, monkeypatch):
+    client.post("/kid/1/start")
+    idx, item = _current_item(1)
+    data = {"idx": idx, "session_id": _session_id(1),
+            "answer": regenerate(item).answer.canonical()}
+    original = db.get_skill_state
+
+    async def race():
+        gate = asyncio.Event()
+        readers = 0
+
+        async def read_same_snapshot(*args):
+            nonlocal readers
+            row = await original(*args)
+            readers += 1
+            if readers == 2:
+                gate.set()
+            await asyncio.wait_for(gate.wait(), timeout=5)
+            return row
+
+        monkeypatch.setattr(db, "get_skill_state", read_same_snapshot)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                     base_url="http://test") as c:
+            responses = await asyncio.gather(
+                c.post("/kid/1/answer", data=data), c.post("/kid/1/answer", data=data)
+            )
+        assert sorted(r.status_code for r in responses) == [200, 303]
+
+    run(race())
+    dbx = db.SqliteDB()
+    try:
+        assert run(db.total_attempts(dbx, 1)) == 1
+        session = run(db.get_active_session(dbx, 1))
+        assert (session["answered"], session["num_correct"]) == (1, 1)
+        state = run(original(dbx, 1, item["skill"]))
+        assert (state["attempts"], state["correct"]) == (1, 1)
+    finally:
+        dbx.close()
+
+
+def test_answer_failure_rolls_back_mastery_plan_and_progress(client):
+    client.post("/kid/1/start")
+    idx, item = _current_item(1)
+    dbx = db.SqliteDB()
+    try:
+        # The next correct answer promotes this skill and rewrites the plan.
+        run(db.save_skill_state(dbx, 1, item["skill"], attempts=3, consec_correct=3))
+        before_session = run(db.get_active_session(dbx, 1))
+        before_state = run(db.get_skill_state(dbx, 1, item["skill"]))
+        run(dbx.run("""CREATE TRIGGER fail_attempt BEFORE INSERT ON attempt
+                       BEGIN SELECT RAISE(ABORT, 'simulated write failure'); END"""))
+        import sqlite3
+        with pytest.raises(sqlite3.IntegrityError, match="simulated write failure"):
+            client.post("/kid/1/answer", data={
+                "idx": idx, "session_id": before_session["id"],
+                "answer": regenerate(item).answer.canonical(),
+            })
+        assert run(db.get_active_session(dbx, 1)) == before_session
+        assert run(db.get_skill_state(dbx, 1, item["skill"])) == before_state
+        assert run(db.total_attempts(dbx, 1)) == 0
+    finally:
+        dbx.close()

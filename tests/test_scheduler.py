@@ -67,6 +67,19 @@ def test_compose_session_handles_all_mastered():
     assert len(plan) == 6  # light maintenance still produces a session
 
 
+def test_due_mastered_skills_are_reviewed_alongside_new_skills():
+    slots = {
+        "A": slot("A", mastered=True, score=0.99, due_at=90),
+        "B": slot("B", due_at=100),
+        "C": slot("C", mastered=True, score=0.99, due_at=200),
+    }
+    plan = compose_session(slots, SEQ, today_ordinal=100)
+    assert len(plan) == 12
+    assert plan.count("A") == 1
+    assert plan.count("B") >= 5
+    assert "C" not in plan
+
+
 def test_next_to_introduce_when_ready():
     # "Settled enough" = off the entry floor (level >= 2), regardless of score.
     slots = {"A": slot("A", level=2)}

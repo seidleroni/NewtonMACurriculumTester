@@ -245,6 +245,7 @@ async def play(request: Request, kid_id: int):
                 "problem": problem,
                 "image_spec": image_spec,
                 "idx": idx,
+                "session_id": session["id"],
                 "num": idx + 1,
                 "total": len(plan),
                 "stars": stars(st["score"]),
@@ -271,6 +272,7 @@ async def answer(
     request: Request,
     kid_id: int,
     idx: int = Form(...),
+    session_id: int | None = Form(None),
     answer: str = Form(""),
     ms: int = Form(0),
 ):
@@ -281,7 +283,7 @@ async def answer(
         if kid is None or session is None:
             return RedirectResponse("/", status_code=303)
         plan = json.loads(session["plan"])
-        if idx != session["answered"] or idx >= len(plan):
+        if session_id != session["id"] or idx != session["answered"] or not 0 <= idx < len(plan):
             return RedirectResponse(f"/kid/{kid_id}/play", status_code=303)
 
         item = plan[idx]
@@ -307,14 +309,10 @@ async def answer(
             for it in plan[idx + 1 :]:
                 if it["skill"] == skill.id:
                     it["level"] = upd.state.level
-            await db.update_session_plan(dbx, session["id"], json.dumps(plan))
         new_box = update_box(st["box"], correct)
         now = db.now_iso()
         today = db.today_ordinal()
-        await db.save_skill_state(
-            dbx,
-            kid_id,
-            skill.id,
+        state = dict(
             score=upd.state.score,
             level=upd.state.level,
             consec_correct=upd.state.consec_correct,
@@ -326,13 +324,14 @@ async def answer(
             last_seen_at=now,
             mastered_at=now if upd.mastered_now else st["mastered_at"],
         )
-        await db.record_attempt(
-            dbx, kid_id, skill.id, session["id"], item["level"], problem.prompt,
-            result.expected_display, result.given_display, correct, ms, today, now,
+        saved = await db.submit_answer(
+            dbx, session=session, skill_id=skill.id, prior_attempts=st["attempts"],
+            plan=json.dumps(plan), state=state, level=item["level"], prompt=problem.prompt,
+            expected=result.expected_display, given=result.given_display,
+            correct=correct, response_ms=ms, today=today, now=now,
         )
-        await db.advance_session(
-            dbx, session["id"], idx + 1, session["num_correct"] + int(correct)
-        )
+        if not saved:
+            return RedirectResponse(f"/kid/{kid_id}/play", status_code=303)
 
         return templates.TemplateResponse(
             request,
