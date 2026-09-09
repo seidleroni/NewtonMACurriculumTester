@@ -5,7 +5,13 @@
   <h1 class="title headline">{{ headline }}</h1>
   <p class="subline">Nice work, {{ kid.name }}!</p>
   {% if session %}
+  {% if learning_summary %}
+  {% if learning_summary.guided %}<p class="big score">{{ learning_summary.guided }} learning activities</p>{% endif %}
+  {% if learning_summary.checks %}<p>{{ learning_summary.checks }} skill checks solved independently</p>{% endif %}
+  {% if learning_summary.independent %}<p>{{ learning_summary.correct }} / {{ learning_summary.independent }} whole-problem answers correct</p>{% endif %}
+  {% else %}
   <p class="big score"><span id="count">{{ session.num_correct }}</span> / {{ session.answered }} correct</p>
+  {% endif %}
   {% endif %}
   {% for title in mastered_today %}
   <p class="banner mastered">🏅 You MASTERED <b>{{ title }}</b>!</p>

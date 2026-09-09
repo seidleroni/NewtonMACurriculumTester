@@ -4,11 +4,19 @@
 {% for d in kids_data %}
 <section class="kidblock">
   <h2>{{ d.kid.emoji }} {{ d.kid.name }} — Grade {{ d.kid.grade }}</h2>
+  <p><a href="/parent/kid/{{ d.kid.id }}/history">View questions and answers by day →</a></p>
+  {% if d.learning %}
+  <ul>{% for item in d.learning %}
+    <li>{{ item.title }} ({{ item.band }}-digit): {{ item.stage }}</li>
+  {% endfor %}</ul>
+  {% endif %}
   <p class="week">This week:
     {{ d.week.days }} night{{ '' if d.week.days == 1 else 's' }} ·
-    {{ d.week.problems }} problems ·
+    {{ d.week.problems }} whole-problem answers ·
     {% if d.week.problems %}{{ (100 * d.week.correct / d.week.problems) | round | int }}% correct{% else %}—{% endif %}
   </p>
+  {% if d.week.teaching_steps %}<p>{{ d.week.teaching_steps }} teaching/check responses this week.
+    Guided steps are counted separately from whole-problem accuracy.</p>{% endif %}
   {% if d.focus %}<p>Suggested focus: <b>{{ d.focus[0] }}</b> <span class="skillcode">{{ d.focus[1] }}</span></p>{% endif %}
   {% if d.trouble %}<p class="trouble">Trouble spot: {{ d.trouble[0] }} <span class="skillcode">{{ d.trouble[2] }}</span> ({{ d.trouble[1] }}% correct)</p>{% endif %}
   {% for g in d.groups %}

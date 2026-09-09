@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="topbar"><span class="who">{{ kid.emoji }} {{ kid.name }}</span>
+  <span>Math practice</span></div>
+<div class="skilltag">{{ title }}</div>
+<div class="problem teaching">
+  <h2>{{ snapshot.prompt }}</h2>
+  {% if snapshot.columns %}
+    <p class="note">Written in columns, the same places line up. Start with the ones.
+      An exchange moves one group to the next place and keeps the total the same.</p>
+    <pre aria-label="Problem lined up by place value">{{ snapshot.columns }}</pre>
+  {% endif %}
+  {% if snapshot.explanation and not progress.work %}
+    <div class="teaching-model">{{ snapshot.explanation }}</div>
+    {% if snapshot.model %}<ol class="teaching-example">
+      {% for s in snapshot.model %}<li>{{ s.prompt }} <strong>{{ s.answer }}</strong></li>{% endfor %}
+    </ol>{% endif %}
+  {% endif %}
+  {% if progress.work %}
+  <details class="work" open><summary>Your work</summary>
+    <ol>{% for s in progress.work %}<li>{{ s.prompt }} <strong>{{ s.answer }}</strong></li>{% endfor %}</ol>
+  </details>
+  {% endif %}
+  {% if progress.message %}<p class="teaching-message" role="status">{{ progress.message }}</p>{% endif %}
+  {% if progress.model and not progress.work %}<ol class="teaching-example">
+    {% for s in progress.model %}<li>{{ s.prompt }} <strong>{{ s.answer }}</strong></li>{% endfor %}
+  </ol>{% endif %}
+  {% if current %}
+  <p class="prompt long">{{ current.prompt }}</p>
+  <form method="post" action="/kid/{{ kid.id }}/step" id="answer-form" autocomplete="off">
+    <input type="hidden" name="activity_id" value="{{ activity.id }}">
+    <input type="hidden" name="session_id" value="{{ activity.session_id }}">
+    <input type="hidden" name="revision" value="{{ activity.revision }}">
+    <input type="hidden" name="ms" value="0" id="ms">
+    {% if current.choices %}
+      <div class="choices inline">{% for value in current.choices %}
+        <label class="choice pick"><input type="radio" name="answer" value="{{ value }}" required>
+          <span>{{ value }}</span></label>
+      {% endfor %}</div>
+    {% else %}
+      <input type="text" name="answer" inputmode="numeric" class="answer" aria-label="Your answer" autofocus required>
+    {% endif %}
+    <button type="submit" class="primary">Check</button>
+  </form>
+  {% else %}
+    <p class="note">{% if progress.outcome == 'independent' %}You solved it yourself!
+      {% elif progress.outcome == 'practiced' %}You practiced the steps!
+      {% else %}Good work practicing a new idea.{% endif %}</p>
+    <a class="primary btn" id="next" href="/kid/{{ kid.id }}/play">Next →</a>
+  {% endif %}
+</div>
+{% endblock %}

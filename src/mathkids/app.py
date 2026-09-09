@@ -14,11 +14,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import jinja2
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from mathkids import db
+from mathkids import db, history, learning, teaching
 from mathkids.engine import REGISTRY, SEQUENCES, Problem
 from mathkids.mastery import MasteryState, apply_attempt, is_mastered, stars
 from mathkids.scheduler import Slot, compose_session, next_due, next_to_introduce, update_box
@@ -183,11 +183,14 @@ async def start(request: Request, kid_id: int):
         if kid is None:
             return RedirectResponse("/", status_code=303)
         today, now = db.today_ordinal(), db.now_iso()
+        teaching_on = teaching.enabled(request)
         active = await db.get_active_session(dbx, kid_id)
         if active is not None:
             # Resume today's unfinished set rather than discarding its progress;
             # a leftover set from a previous day is closed and replanned fresh.
-            if active["day"] == today and active["answered"] < len(json.loads(active["plan"])):
+            same_mode = bool(await teaching.session_info(dbx, active["id"])) == teaching_on
+            if (same_mode and active["day"] == today
+                    and active["answered"] < len(json.loads(active["plan"]))):
                 return RedirectResponse(f"/kid/{kid_id}/play", status_code=303)
             await db.end_session(dbx, active["id"], now)
         sequence = grade_sequence(kid["grade"])
@@ -195,12 +198,12 @@ async def start(request: Request, kid_id: int):
         states = await db.get_skill_states(dbx, kid_id)
         slots = build_slots(states, sequence)
         plan_ids = compose_session(slots, sequence, today, n=kid["daily_goal"])
-        session_id = await db.create_session(dbx, kid_id, "[]", today, now)
         plan = [
-            {"skill": sid, "level": slots[sid].level, "seed": session_id * 1000 + i}
-            for i, sid in enumerate(plan_ids)
+            {"skill": sid, "level": slots[sid].level, "seed": random.SystemRandom().randrange(2**52)}
+            for sid in plan_ids
         ]
-        await db.update_session_plan(dbx, session_id, json.dumps(plan))
+        await db.create_session(dbx, kid_id, json.dumps(plan), today, now,
+                                teaching_budget=kid["daily_goal"] if teaching_on else None)
         return RedirectResponse(f"/kid/{kid_id}/play", status_code=303)
     finally:
         dbx.close()
@@ -218,13 +221,30 @@ async def play(request: Request, kid_id: int):
             return RedirectResponse("/", status_code=303)
         plan = json.loads(session["plan"])
         idx = session["answered"]
-        if idx >= len(plan):
+        info = await teaching.session_info(dbx, session["id"])
+        if bool(info) != teaching.enabled(request):
+            await db.end_session(dbx, session["id"], db.now_iso())
+            return RedirectResponse("/", status_code=303)
+        unfinished = await dbx.first(
+            "SELECT id FROM practice_activity WHERE session_id=? AND slot=? AND outcome IS NULL",
+            session["id"], idx,
+        ) if info else None
+        if idx >= len(plan) or (info and info["used"] >= info["budget"] and not unfinished):
             await db.end_session(dbx, session["id"], db.now_iso())
             return RedirectResponse(f"/kid/{kid_id}/done", status_code=303)
 
         item = plan[idx]
         skill = REGISTRY[item["skill"]]
         st = await db.get_skill_state(dbx, kid_id, skill.id)
+        if info and skill.id in learning.SUPPORTED:
+            activity = await teaching.get_activity(dbx, session, item, skill, regenerate(item))
+            if activity and activity.get("budget_end"):
+                await db.end_session(dbx, session["id"], db.now_iso())
+                return RedirectResponse(f"/kid/{kid_id}/done", status_code=303)
+            if activity is None:
+                return RedirectResponse(f"/kid/{kid_id}/play", status_code=303)
+            return templates.TemplateResponse(request, "teaching.html",
+                                              teaching.page_context(activity, kid, skill, info))
         if st["lesson_seen"] == 0:
             return templates.TemplateResponse(
                 request,
@@ -288,10 +308,13 @@ async def answer(
 
         item = plan[idx]
         skill = REGISTRY[item["skill"]]
+        info = await teaching.session_info(dbx, session["id"])
+        if bool(info) != teaching.enabled(request) or (info and skill.id in learning.SUPPORTED):
+            return RedirectResponse(f"/kid/{kid_id}/play", status_code=303)
         problem = regenerate(item)
         result = problem.answer.grade(answer)
         correct = result.correct
-        fast = 0 < ms < FAST_MS
+        fast = 0 < ms < FAST_MS and skill.id not in learning.SUPPORTED
 
         st = await db.get_skill_state(dbx, kid_id, skill.id)
         ms_state = MasteryState(
@@ -353,6 +376,53 @@ async def answer(
         dbx.close()
 
 
+@app.post("/kid/{kid_id}/step")
+async def teaching_step(
+    request: Request, kid_id: int, activity_id: int = Form(...),
+    revision: int = Form(...), session_id: int = Form(...), answer: str = Form(""),
+    ms: int = Form(0),
+):
+    dbx = database(request)
+    try:
+        session = await db.get_active_session(dbx, kid_id)
+        if not teaching.enabled(request) or not session or session["id"] != session_id:
+            return RedirectResponse("/", status_code=303)
+        activity = await dbx.first(
+            "SELECT * FROM practice_activity WHERE id=? AND kid_id=? AND session_id=?",
+            activity_id, kid_id, session_id,
+        )
+        if (not activity or activity["revision"] != revision
+                or activity["slot"] != session["answered"] or activity["outcome"]):
+            return RedirectResponse(f"/kid/{kid_id}/play", status_code=303)
+        skill = REGISTRY[activity["skill_id"]]
+        saved = await teaching.submit(dbx, session, activity, answer, ms, skill)
+        if not saved:
+            return RedirectResponse(f"/kid/{kid_id}/play", status_code=303)
+        return RedirectResponse(f"/kid/{kid_id}/activity/{activity_id}", status_code=303)
+    finally:
+        dbx.close()
+
+
+@app.get("/kid/{kid_id}/activity/{activity_id}")
+async def teaching_activity(request: Request, kid_id: int, activity_id: int):
+    dbx = database(request)
+    try:
+        activity = await dbx.first(
+            "SELECT * FROM practice_activity WHERE id=? AND kid_id=?", activity_id, kid_id
+        )
+        if not activity:
+            return RedirectResponse("/", status_code=303)
+        session = await db.get_active_session(dbx, kid_id)
+        if not session or activity["session_id"] != session["id"] or not teaching.enabled(request):
+            return RedirectResponse("/", status_code=303)
+        return templates.TemplateResponse(request, "teaching.html", teaching.page_context(
+            activity, await db.get_kid(dbx, kid_id), REGISTRY[activity["skill_id"]],
+            await teaching.session_info(dbx, session["id"]),
+        ))
+    finally:
+        dbx.close()
+
+
 @app.get("/kid/{kid_id}/done")
 async def done(request: Request, kid_id: int):
     dbx = database(request)
@@ -361,6 +431,7 @@ async def done(request: Request, kid_id: int):
         if kid is None:
             return RedirectResponse("/", status_code=303)
         session = await db.get_latest_session(dbx, kid_id)
+        learning_summary = await teaching.summary(dbx, session["id"]) if session else None
         states = await db.get_skill_states(dbx, kid_id)
         sequence = grade_sequence(kid["grade"])
         nxt = next_to_introduce(build_slots(states, sequence), sequence)
@@ -384,8 +455,8 @@ async def done(request: Request, kid_id: int):
                     }
                 )
         emoji, headline = celebration_headline(
-            session["num_correct"] if session else 0,
-            session["answered"] if session else 0,
+            learning_summary["correct"] if learning_summary else session["num_correct"] if session else 0,
+            learning_summary["independent"] if learning_summary else session["answered"] if session else 0,
         )
         today_prefix = db.now_iso()[:10]
         mastered_today = [
@@ -400,7 +471,7 @@ async def done(request: Request, kid_id: int):
         milestone = None
         if session:
             total = await db.total_attempts(dbx, kid_id)
-            before = total - session["answered"]
+            before = total - (learning_summary["independent"] if learning_summary else session["answered"])
             if total >= 100 and total // 100 > before // 100:
                 milestone = total // 100 * 100
 
@@ -416,6 +487,7 @@ async def done(request: Request, kid_id: int):
                 "headline": headline,
                 "mastered_today": mastered_today,
                 "milestone": milestone,
+                "learning_summary": learning_summary,
             },
         )
     finally:
@@ -511,11 +583,28 @@ async def parent(request: Request):
                     "week": await db.week_stats(dbx, kid["id"], today),
                     "focus": focus,
                     "trouble": trouble,
+                    "learning": await teaching.parent_progress(dbx, kid["id"]),
                 }
             )
         return templates.TemplateResponse(
             request, "parent_dashboard.html", {"kids_data": kids_data}
         )
+    finally:
+        dbx.close()
+
+
+@app.get("/parent/kid/{kid_id}/history")
+async def parent_history(request: Request, kid_id: int, day: str | None = None):
+    dbx = database(request)
+    try:
+        kid = await db.get_kid(dbx, kid_id)
+        if kid is None:
+            return RedirectResponse("/parent", status_code=303)
+        try:
+            data = await history.daily_history(dbx, kid_id, day)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Choose a date in YYYY-MM-DD format.") from None
+        return templates.TemplateResponse(request, "history.html", {"kid": kid, **data})
     finally:
         dbx.close()
 

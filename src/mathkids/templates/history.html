@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="/parent">← Parent view</a></p>
+<h1>{{ kid.emoji }} {{ kid.name }}'s practice history</h1>
+<form method="get" class="history-filter">
+  <label for="history-day">Practice day</label>
+  <input id="history-day" type="date" name="day" value="{{ selected }}" required>
+  <button type="submit">Show day</button>
+</form>
+<p>{% if older %}<a href="?day={{ older }}">← {{ older }}</a>{% endif %}
+  <strong>{{ selected }}</strong>
+  {% if newer %}<a href="?day={{ newer }}">{{ newer }} →</a>{% endif %}</p>
+<p>{{ correct }} / {{ total }} whole-problem answer records correct · {{ steps }} teaching/check responses</p>
+<p class="history-note">Older records show the answers stored at the time; whether help was given is unknown.
+  Possible repeated submissions are retained, so historical totals may include duplicates.</p>
+{% for group in groups %}
+<section class="history-set">
+  <h2>{% if group.session %}Problem set #{{ group.session.id }}
+    <small>Started {{ group.session.started_at }}</small>
+    {% if not group.session.ended_at %}<small>Unfinished</small>{% endif %}
+    {% else %}Earlier imported answers{% endif %}</h2>
+  {% if not group.entries %}<p>No answers recorded in this set on this day.</p>{% endif %}
+  <ol class="history-problems">
+  {% for entry in group.entries %}
+    <li>
+    {% if entry.kind == 'attempt' %}
+      <p><strong>{{ entry.row.prompt }}</strong></p>
+      <p class="{{ 'answer-correct' if entry.row.correct else 'answer-wrong' }}">
+        {{ '✓ Correct' if entry.row.correct else '✗ Incorrect' }} ·
+        Answer: <b>{{ entry.row.given or '(blank)' }}</b> · Expected: {{ entry.row.expected }}</p>
+      <small>{{ entry.row.skill_id }} · {{ entry.row.created_at }} · {{ (entry.row.response_ms / 1000)|round(1) }} seconds</small>
+      {% if entry.repeated %}<p class="history-note">Possible duplicate: same question and answer recorded in this set at the same second.</p>{% endif %}
+    {% else %}
+      <p><strong>{{ entry.prompt }}</strong></p>
+      <p>{{ 'Independent check' if entry.mode in ['probe', 'independent', 'established'] else 'Step-by-step practice' }}
+        · {{ {'independent': 'Solved independently', 'practiced': 'Practiced with guidance',
+              'revisit': 'Needs more practice'}.get(entry.outcome, 'In progress') }}</p>
+      <details open><summary>Questions and answers in this activity</summary>
+        <ol>{% for s in entry.steps %}<li>
+          <p>{{ s.prompt }}</p>
+          <p class="{{ 'answer-correct' if s.correct else 'answer-wrong' }}">
+            {{ '✓ Correct' if s.correct else '✗ Incorrect' }} ·
+            Answer: <b>{{ s.raw_input or '(blank)' }}</b> · Expected: {{ s.expected }}</p>
+          <small>{{ 'Guided' if s.mode in ['guided', 'faded'] else 'Independent' }} · {{ s.created_at }}
+            · {{ (s.response_ms / 1000)|round(1) }} seconds</small>
+        </li>{% endfor %}</ol>
+      </details>
+    {% endif %}
+    </li>
+  {% endfor %}
+  </ol>
+</section>
+{% else %}<p>No practice recorded on this day.</p>{% endfor %}
+{% endblock %}

@@ -7,9 +7,9 @@
 Every helper takes an adapter as its first argument and is async so route code
 is identical on both backends. Rows are plain dicts either way.
 
-The schema lives in ``migrations/0001_init.sql`` (applied to D1 with
-``wrangler d1 migrations apply``); ``init_db`` executes the same file for the
-sqlite backend so the two can never drift.
+The schema lives in ordered ``migrations/*.sql`` files (applied to D1 with
+``wrangler d1 migrations apply``); ``init_db`` applies the same migrations once
+for the sqlite backend, recording them in ``local_migrations``.
 
 Dates are stored two ways: human ISO strings (`*_at`) for display, and integer
 day ordinals (`due_at`, `day`) for cheap comparison in the scheduler. "Today"
@@ -114,9 +114,22 @@ def _to_dict(row) -> dict:
 
 
 async def init_db(dbx: SqliteDB) -> None:
-    """Create tables on the sqlite backend (D1 uses wrangler migrations)."""
-    dbx._conn.executescript(_SCHEMA_FILE.read_text(encoding="utf-8"))
+    """Apply ordered migrations exactly once (D1 uses Wrangler's own ledger)."""
+    dbx._conn.execute("CREATE TABLE IF NOT EXISTS local_migrations (name TEXT PRIMARY KEY)")
     dbx._conn.commit()
+    for path in sorted(_SCHEMA_FILE.parent.glob("[0-9]*.sql")):
+        if dbx._conn.execute("SELECT 1 FROM local_migrations WHERE name=?", (path.name,)).fetchone():
+            continue
+        # An existing pre-ledger SQLite database can safely run the idempotent 0001.
+        name = path.name.replace("'", "''")
+        try:
+            dbx._conn.executescript(
+                "BEGIN IMMEDIATE;\n" + path.read_text(encoding="utf-8")
+                + f"\nINSERT INTO local_migrations VALUES ('{name}');\nCOMMIT;"
+            )
+        except Exception:
+            dbx._conn.rollback()
+            raise
 
 
 # --- kids -----------------------------------------------------------------
@@ -230,6 +243,11 @@ async def submit_answer(
             (kid_id, skill_id, session_id, level, prompt, expected, given, int(correct),
              response_ms, today, now),
         ),
+        (
+            "UPDATE learning_session SET used = used + 1, revision = revision + 1 "
+            "WHERE session_id = ? AND changes() = 1",
+            (session_id,),
+        ),
     ])
     return changes[0] == 1
 
@@ -259,16 +277,37 @@ async def week_stats(dbx, kid_id: int, today: int) -> dict:
            FROM attempt WHERE kid_id = ? AND day >= ?""",
         kid_id, since,
     )
-    return {"problems": row["problems"], "correct": row["correct"], "days": row["days"]}
+    teaching = await dbx.first(
+        """SELECT COUNT(*) AS steps FROM step_response r
+           JOIN practice_activity a ON a.id=r.activity_id WHERE a.kid_id=? AND r.day>=?""",
+        kid_id, since,
+    )
+    days = await dbx.first(
+        """SELECT COUNT(*) AS days FROM (SELECT day FROM attempt WHERE kid_id=? AND day>=?
+           UNION SELECT r.day FROM step_response r JOIN practice_activity a ON a.id=r.activity_id
+           WHERE a.kid_id=? AND r.day>=?)""", kid_id, since, kid_id, since,
+    )
+    return {"problems": row["problems"], "correct": row["correct"], "days": days["days"],
+            "teaching_steps": teaching["steps"]}
 
 
 # --- sessions -------------------------------------------------------------
 
-async def create_session(dbx, kid_id: int, plan_json: str, today: int, now: str) -> int:
-    return await dbx.run(
-        "INSERT INTO session (kid_id, plan, day, started_at) VALUES (?, ?, ?, ?)",
-        kid_id, plan_json, today, now,
-    )
+async def create_session(
+    dbx, kid_id: int, plan_json: str, today: int, now: str, *, teaching_budget: int | None = None
+) -> int:
+    statements = [(
+        "INSERT OR IGNORE INTO session (kid_id,plan,day,started_at) VALUES (?,?,?,?)",
+        (kid_id, plan_json, today, now),
+    )]
+    if teaching_budget is not None:
+        statements.append((
+            "INSERT INTO learning_session (session_id,version,budget) "
+            "SELECT last_insert_rowid(),1,? WHERE changes()=1", (teaching_budget,),
+        ))
+    await dbx.batch(statements)
+    row = await get_active_session(dbx, kid_id)
+    return row["id"]
 
 
 async def update_session_plan(dbx, session_id: int, plan_json: str) -> None:

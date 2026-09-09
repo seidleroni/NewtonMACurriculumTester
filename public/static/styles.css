@@ -157,3 +157,18 @@ h1, h2 { color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   .celebrate .burst, .celebrate .headline, .banner { animation: none; }
 }
+/* Teaching keeps the current question distinct from accumulated work. */
+.teaching h2 { font-size: 1.35rem; }
+.teaching-model, .teaching-message { padding: 1rem; border-radius: .6rem; background: #eee8fa; }
+.work { text-align: left; margin: 1rem 0; }
+.work ol { padding-left: 1.5rem; }
+.work li { margin: .5rem 0; }
+.history-set { margin: 2rem 0; padding: 1rem; background: white; border-radius: .75rem; }
+.history-set h2 small { display: block; font-size: .85rem; font-weight: normal; }
+.history-problems { padding-left: 1.5rem; }
+.history-problems > li { border-bottom: 1px solid #ddd; padding: .8rem 0; }
+.history-problems p { overflow-wrap: anywhere; }
+.history-note { font-size: .9rem; color: #655e73; }
+.answer-correct { color: #146c36; }
+.answer-wrong { color: #9d2525; }
+.history-filter { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
