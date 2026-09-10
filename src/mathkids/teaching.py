@@ -63,6 +63,10 @@ async def get_activity(dbx, session: dict, item: dict, skill, problem):
                and known[(c, band)]["due_at"] <= db.today_ordinal()]
         if due:
             component = min(due, key=lambda c: known[(c, band)]["due_at"])
+    if skill.id == "2.OA.A.1":
+        from mathkids.word_learning import select
+        target = select(known, item["level"], db.today_ordinal())
+        component, band = target if target else (whole, band)
     state = known.get((component, band), learning.empty_state(component, band))
     mode = state["stage"]
     if component == whole:
@@ -72,7 +76,8 @@ async def get_activity(dbx, session: dict, item: dict, skill, problem):
             seed=item["seed"], prompt=problem.prompt, explanation="",
             steps=[learning.step(problem.prompt, problem.answer.value, component,
                                  "Let's check the parts of the problem together.")],
-            recovery=learning.task(path[0], band, "guided", item["seed"] + 104729),
+            recovery=learning.task("story_start" if skill.id == "2.OA.A.1" else path[0],
+                                   band, "guided", item["seed"] + 104729),
             model=[], remediation={c: learning.smaller_example(c, item["seed"] + i)
                                    for i, c in enumerate(learning.TITLES)},
         )
@@ -152,6 +157,10 @@ async def submit(dbx, session: dict, activity: dict, raw: str, ms: int, skill) -
                    for c in learning.requirements(skill.id, st["level"])[1])
             or is_mastered(st["score"], st["level"], skill.max_level)
         )
+        if skill.id == "2.OA.A.1":
+            from mathkids.word_learning import gates
+            confirmed = all(known.get(pair, {}).get("stage") == "established"
+                            for pair in gates(st["level"]))
         if upd.leveled_up and not confirmed:
             upd.state.level = st["level"]
             upd.state.consec_correct = st["consec_correct"] + int(correct)
@@ -255,9 +264,18 @@ async def summary(dbx, session_id: int) -> dict | None:
 
 
 async def parent_progress(dbx, kid_id: int) -> list[dict]:
+    from mathkids.word_learning import TIERS
+
     rows = list((await states(dbx, kid_id)).values())
     return [dict(title=learning.TITLES.get(r["component"],
                     REGISTRY[r["component"].split(":")[1]].title
                     if r["component"].startswith("whole:") else r["component"]),
-                 band=r["band"], stage=learning.STAGES[r["stage"]], due_at=r["due_at"])
+                 band=r["band"],
+                 range_label=(
+                     ("Below 10" if r["band"] == 1 else f"Within {TIERS[r['band']][1]}")
+                     + (", exchanging" if TIERS[r["band"]][2] else ", no exchanging")
+                     if r["component"].startswith(("story_", "whole:2.OA.A.1:"))
+                     else f"{r['band']}-digit"
+                 ),
+                 stage=learning.STAGES[r["stage"]], due_at=r["due_at"])
             for r in rows]

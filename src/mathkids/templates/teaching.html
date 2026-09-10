@@ -4,7 +4,7 @@
   <span>Math practice</span></div>
 <div class="skilltag">{{ title }}</div>
 <div class="problem teaching">
-  <h2>{{ snapshot.prompt }}</h2>
+  <h2>{{ snapshot.recovery.prompt if progress.recovery and snapshot.recovery else snapshot.prompt }}</h2>
   {% if snapshot.columns %}
     <p class="note">Written in columns, the same places line up. Start with the ones.
       An exchange moves one group to the next place and keeps the total the same.</p>
@@ -26,6 +26,22 @@
     {% for s in progress.model %}<li>{{ s.prompt }} <strong>{{ s.answer }}</strong></li>{% endfor %}
   </ol>{% endif %}
   {% if current %}
+  {% if current.diagram %}<p class="teaching-model">{{ current.diagram }}</p>{% endif %}
+  {% if current.picture %}
+    <div class="teaching-model" aria-label="Button model">
+    {% if current.picture.kind == 'story_take' %}
+      <p>Crossed-out buttons went away. Count the buttons left.</p>
+      {% for i in range(current.picture.total) %}
+        {% if i < current.picture.change %}<span aria-label="button given away" style="font-size:2rem">⊗</span>
+        {% else %}<span aria-label="button left" style="font-size:2rem">●</span>{% endif %}
+      {% endfor %}
+    {% else %}
+      <p>{{ current.picture.total }} buttons altogether</p>
+      {% for i in range(current.picture.change) %}<span aria-label="visible button" style="font-size:2rem">●</span>{% endfor %}
+      <span style="display:inline-block;border:2px solid currentColor;padding:1rem">? covered</span>
+    {% endif %}
+    </div>
+  {% endif %}
   <p class="prompt long">{{ current.prompt }}</p>
   <form method="post" action="/kid/{{ kid.id }}/step" id="answer-form" autocomplete="off">
     <input type="hidden" name="activity_id" value="{{ activity.id }}">

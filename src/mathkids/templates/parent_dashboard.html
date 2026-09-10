@@ -7,7 +7,7 @@
   <p><a href="/parent/kid/{{ d.kid.id }}/history">View questions and answers by day →</a></p>
   {% if d.learning %}
   <ul>{% for item in d.learning %}
-    <li>{{ item.title }} ({{ item.band }}-digit): {{ item.stage }}</li>
+    <li>{{ item.title }} ({{ item.range_label }}): {{ item.stage }}</li>
   {% endfor %}</ul>
   {% endif %}
   <p class="week">This week:

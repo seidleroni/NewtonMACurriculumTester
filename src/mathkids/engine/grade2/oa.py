@@ -127,9 +127,10 @@ class AddSubWordProblems(Skill):
         return Lesson(
             title=self.title,
             body=(
-                "Read the story and decide if things are coming together (add) or going "
-                "away (take away/subtract). Find the numbers, choose the operation, then "
-                "solve. If the missing number is the start, work backwards: undo the "
+                "Find what the story asks for: the start, the change, or the end. "
+                "The whole has two parts. A missing whole means add the parts; a missing "
+                "part means subtract the known part from the whole. "
+                "If the missing number is the start, work backwards: undo the "
                 "change. If the missing number is the change (how many were added or taken "
                 "away), find the gap between the starting and ending amounts."
             ),

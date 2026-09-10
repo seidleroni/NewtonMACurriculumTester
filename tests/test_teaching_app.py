@@ -88,6 +88,28 @@ def test_confident_learner_stays_independent(practice):
     assert run(d.first("SELECT COUNT(*) AS n FROM step_response"))["n"] == 1
 
 
+def test_word_problem_legacy_success_cannot_skip_small_number_checks(practice):
+    c, d = practice
+    run(db.introduce_skill(d, 1, "2.OA.A.1", db.today_ordinal(), db.now_iso()))
+    run(db.save_skill_state(d, 1, "2.OA.A.1", level=4, attempts=35, correct=35))
+    plan = [{"skill": "2.OA.A.1", "level": 4, "seed": 777 + i} for i in range(12)]
+    run(d.run("UPDATE session SET plan=?", json.dumps(plan)))
+    page = c.get("/kid/1/play")
+    a = active(d)
+    assert a["component"] == "story_take" and a["band"] == 1
+    assert "completed with help" not in page.text.lower()
+    page = c.post("/kid/1/step", data=data_for(a, True))
+    assert "Crossed-out buttons" in page.text
+    assert "Button model" in page.text
+    assert run(db.total_attempts(d, 1)) == 0
+    while active(d) and active(d)["id"] == a["id"]:
+        c.post("/kid/1/step", data=data_for(active(d)))
+    c.get("/kid/1/play")
+    assert active(d)["component"] == "story_take"
+    assert run(db.get_skill_state(d, 1, "2.OA.A.1"))["level"] == 4
+    assert "Below 10, no exchanging" in c.get("/parent").text
+
+
 def test_whole_failure_is_recorded_once_even_after_guided_completion(practice):
     c, d = practice
     run(db.save_skill_state(d, 1, "2.NBT.B.7", attempts=12, correct=12))

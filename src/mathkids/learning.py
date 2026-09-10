@@ -8,8 +8,8 @@ from __future__ import annotations
 import copy
 import random
 
-VERSION = 1
-SUPPORTED = {"2.NBT.B.5", "2.NBT.B.6", "2.NBT.B.7", "3.NBT.A.2", "4.NBT.B.4"}
+VERSION = 2
+SUPPORTED = {"2.OA.A.1", "2.NBT.B.5", "2.NBT.B.6", "2.NBT.B.7", "3.NBT.A.2", "4.NBT.B.4"}
 TITLES = {
     "decompose": "Break numbers into parts",
     "match": "Match hundreds, tens, and ones",
@@ -23,6 +23,14 @@ TITLES = {
     "sub_tens": "Exchange a hundred for tens",
     "sub_multi": "Exchange in more than one place",
     "sub_zero": "Exchange across a zero",
+    "story_take": "Take away and count what remains",
+    "story_hidden": "Find the hidden part",
+    "story_link": "Connect addition and subtraction",
+    "story_calculate": "Subtract a little at a time",
+    "story_start": "Find how many there were at the start",
+    "story_start_take": "Find the start before some were given away",
+    "story_change": "Find how many were added",
+    "story_change_take": "Find how many were given away",
     "whole": "Solve it yourself",
 }
 STAGES = {"probe": "Checking independently", "guided": "Learning the steps",
@@ -42,6 +50,10 @@ def parts(n: int) -> str:
 
 def requirements(skill_id: str, level: int) -> tuple[int, list[str]]:
     """Explicit concept gates, independent of a lucky generated no-carry example."""
+    if skill_id == "2.OA.A.1":
+        from mathkids.word_learning import gates
+        pairs = gates(level)
+        return pairs[-1][1], list(dict.fromkeys(c for c, _ in pairs))
     band = 2 if skill_id in {"2.NBT.B.5", "2.NBT.B.6"} else 3
     path = ["decompose", "match", "add_parts"]
     if skill_id == "2.NBT.B.6":
@@ -124,6 +136,9 @@ def step(prompt: str, answer: int, component: str, feedback: str, *, choices=Non
 def smaller_example(component: str, seed: int) -> dict:
     """An authored, related prerequisite check, not a generic easy distraction."""
     rng = random.Random(seed)
+    if component.startswith("story_"):
+        return step("7 buttons have two parts: 3 and a hidden part. 7 - 3 = ?", 4,
+                    component, "Count back three from seven: six, five, four. The hidden part is 4.")
     n = rng.randint(2, 8)
     if component in {"decompose", "match"}:
         return step(f"3 tens are worth 30. What are {n} tens worth?", n * 10, "decompose",
@@ -269,6 +284,9 @@ def arithmetic_steps(nums: list[int], op: str, component: str, mode: str) -> lis
 
 
 def task(component: str, band: int, mode: str, seed: int) -> dict:
+    if component.startswith("story_"):
+        from mathkids.word_learning import task as story_task
+        return story_task(component, band, mode, seed)
     rng = random.Random(seed)
     explanation = ""
     model = []

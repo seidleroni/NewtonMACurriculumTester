@@ -10,7 +10,7 @@ Possible duplicate submissions are flagged and retained in the historical totals
 
 ## Teaching progression
 
-`learning.py` supplies deterministic, versioned activities for 2.NBT.B.5–7,
+`learning.py` supplies deterministic, versioned activities for 2.OA.A.1, 2.NBT.B.5–7,
 3.NBT.A.2, and 4.NBT.B.4. Other skills retain their existing question flows.
 The shared engine separates the idea being learned, number size, and amount of
 support. New topic families can add components without redesigning persistence.
@@ -45,6 +45,32 @@ appear automatically when needed; no help button or parent intervention is requi
 This is authored instruction, not a runtime AI tutor. Initial teaching coverage is
 the arithmetic standards above; fractions, measurement, and other topics do not yet
 have component-specific teaching sequences.
+
+### Word problems and subtraction
+
+`word_learning.py` adds a separate path for 2.OA.A.1. Historical correctness cannot
+skip its entry checks. The path begins with taking away, a hidden part, and the
+addition/subtraction connection on numbers below 10. Guided activities show crossed-out
+buttons or a covered group, then start/change/total labels. Faded activities retain
+the relationship and shorter steps; independent checks show only the question.
+
+Calculation and finding a story's starting amount are checked separately. Number tiers
+are below 10, within 20, within 30, within 50, and within 100 without exchanging.
+Exchanging restarts within 20, then grows to 50 and 100. Every concept/tier requires
+three recent independent successes spanning at least two days before the next gate;
+guided completion and historical levels cannot skip tiers. Established ingredients
+receive spaced review, and repeated errors reopen instruction. Reverse stories (some
+were given away; find the start) and missing-change stories have distinct components.
+Existing arithmetic activities continue to teach three-digit subtraction and exchanges
+across zeros. No assistance-reporting control is added or historical answer relabeled.
+
+These activities use the existing response budget, immutable snapshots, and additive
+learning tables; no new migration is required. Word-problem component bands are number
+tiers, not digit counts, and their evidence is separate from arithmetic component evidence.
+
+Deployed September 10, 2026 as Worker version `08378fe4-e0be-49fe-b12e-30ea7a6975b0`.
+Validation: 1,135 tests passed; the final dashboard/template changes passed all 17
+teaching endpoint tests, and Ruff passed. Existing production answers were not modified.
 
 ## Storage and migration
 
