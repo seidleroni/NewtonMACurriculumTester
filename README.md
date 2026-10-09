@@ -1,4 +1,4 @@
-# Newton Math — daily practice for Jacob & Samuel
+# Newton Math — daily practice for my kids
 
 A daily math practice web app, grounded in the Newton, MA elementary curriculum
 (Investigations 3 → 2017 Massachusetts Math Framework). See [`DESIGN.md`](DESIGN.md) for the
@@ -10,7 +10,7 @@ the skill engine, mastery + spaced-repetition scheduler (with a placement probe 
 within-session adaptivity), the full daily loop, kid and parent dashboards, and the **complete
 80-skill Grade 2–4 catalog** — including image-based skills (clocks, number lines, arrays,
 grids, bar graphs, fraction bars, marked shapes, a protractor) and multiple-choice reframes of
-the open-reasoning standards. Jacob starts on Grade 2, Samuel on Grade 4; Grade 3 is included
+the open-reasoning standards. One kid starts on Grade 2, the other on Grade 4; Grade 3 is included
 as a cross-grade safety net.
 
 Everything runs offline with no AI at runtime. Problems are generated and graded by pure,
