@@ -28,6 +28,7 @@ class Slot:
     box: int
     due_at: int
     mastered: bool
+    attempts: int = 0
 
 
 def _interleave(plan: list[str]) -> list[str]:
@@ -75,6 +76,33 @@ def compose_session(
         i += 1
 
     return _interleave(plan[:n])
+
+
+MAX_REVIEWS = 4  # due reviews served first in a set
+MAX_BLOCK = 5    # reviews plus unaided checks of skills being taught
+
+
+def compose_blocks(
+    slots: dict[str, Slot], sequence: list[str], today_ordinal: int, n: int = 12,
+    checks: tuple[str, ...] = (),
+) -> tuple[list[str], list[str]]:
+    """The same set as `compose_session`, split into a review block served first and the
+    rest. Reviews are the most overdue due skills; `checks` (skills being taught) each
+    get one slot in the block too, so an unaided answer keeps their mastery moving
+    while teaching runs. Teaching and new work can then never crowd out reviews."""
+    plan = compose_session(slots, sequence, today_ordinal, n)
+    due = sorted(
+        (s for s in dict.fromkeys(plan)
+         if slots[s].due_at <= today_ordinal and slots[s].attempts > 0),
+        key=lambda s: (slots[s].due_at, slots[s].score, s),
+    )
+    block = due[:MAX_REVIEWS]
+    block += [s for s in dict.fromkeys(checks) if s in plan and s not in block]
+    block = block[:MAX_BLOCK]
+    rest = list(plan)
+    for s in block:
+        rest.remove(s)
+    return block, rest
 
 
 def _off_the_floor(slot: Slot) -> bool:

@@ -35,6 +35,7 @@ packages = ["src/mathkids"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]  # lets tests drive tools/ (e.g. the teaching simulator)
 addopts = "-q"
 
 [tool.ruff]

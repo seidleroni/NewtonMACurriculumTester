@@ -88,6 +88,28 @@ def is_mastered(score: float, level: int, max_level: int) -> bool:
     return level >= max_level and score >= MASTER_SCORE
 
 
+LAPSE_WINDOW = 5      # recent unaided answers that can take back an earned badge
+LAPSE_MISSES = 2      # misses within that window that do so
+
+
+def recent_misses(answers: list[tuple[int, int]], level: int | None = None,
+                  window: int = LAPSE_WINDOW) -> int:
+    """Misses among the last `window` (correct, level) answers, optionally at one level."""
+    picked = [c for c, lv in answers if level is None or lv == level][-window:]
+    return sum(1 for c in picked if not c)
+
+
+def is_retained(score: float, level: int, max_level: int, mastered_at: str | None,
+                answers: list[tuple[int, int]]) -> bool:
+    """Mastery as the kid experiences it. Earned mastery is sticky: one slip lowers the
+    score below MASTER_SCORE, but the badge (and the skill's place outside the
+    unmastered cap) only goes after LAPSE_MISSES misses in the last LAPSE_WINDOW
+    answers. A skill re-banded to a higher max_level keeps a badge earned before."""
+    if recent_misses(answers) >= LAPSE_MISSES:
+        return False
+    return is_mastered(score, level, max_level) or bool(mastered_at)
+
+
 def apply_attempt(
     state: MasteryState, max_level: int, correct: bool, fast: bool = False,
     attempt_index: int | None = None,

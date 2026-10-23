@@ -23,11 +23,20 @@ def practice(tmp_path, monkeypatch):
     run(db.create_kid(d, "Learner", 2, "L"))
     run(db.introduce_skill(d, 1, "2.NBT.B.7", db.today_ordinal(), db.now_iso()))
     run(db.save_skill_state(d, 1, "2.NBT.B.7", level=2, attempts=11, correct=7))
+    history(d, "2.NBT.B.7", 2, [1, 0, 1, 0, 1])
     plan = [{"skill": "2.NBT.B.7", "level": 2, "seed": i * 101 + 5} for i in range(12)]
     run(db.create_session(d, 1, json.dumps(plan), db.today_ordinal(), db.now_iso(), teaching_budget=12))
     with TestClient(app) as c:
         yield c, d
     d.close()
+
+
+def history(d, skill, level, results, day_offset=10):
+    """Recent unaided answers (1/0) on an older day; recent misses choose teaching."""
+    for i, ok in enumerate(results):
+        run(db.record_attempt(d, 1, skill, None, level, f"old {skill} #{i}", "1",
+                              "1" if ok else "2", bool(ok), 9000,
+                              db.today_ordinal() - day_offset, f"2026-01-01T10:00:0{i}-05:00"))
 
 
 def active(d):
@@ -51,8 +60,10 @@ def test_jacob_entry_check_automatic_teaching_and_history(practice):
     assert "help" not in page.text.lower()
     wrong = data_for(a, True)
     page = c.post("/kid/1/step", data=wrong)
+    assert "one more like it" in page.text
+    page = c.post("/kid/1/step", data=data_for(active(d), True))
     assert "Let's find the part" in page.text or "Let&#39;s find the part" in page.text
-    assert run(db.total_attempts(d, 1)) == 0
+    assert run(db.total_attempts(d, 1)) == 5
     assert run(db.get_skill_state(d, 1, "2.NBT.B.7"))["attempts"] == 11
     # Refresh has the same current question and does not reset the revision.
     a = active(d)
@@ -66,7 +77,7 @@ def test_jacob_entry_check_automatic_teaching_and_history(practice):
         c.post("/kid/1/step", data=data_for(a))
     record = run(d.first("SELECT * FROM practice_activity ORDER BY id LIMIT 1"))
     assert record["outcome"] == "practiced"
-    assert run(db.total_attempts(d, 1)) == 0
+    assert run(db.total_attempts(d, 1)) == 5
     hist = c.get("/parent/kid/1/history")
     assert hist.status_code == 200
     assert wrong["answer"] in hist.text
@@ -77,7 +88,7 @@ def test_jacob_entry_check_automatic_teaching_and_history(practice):
 
 def test_confident_learner_stays_independent(practice):
     c, d = practice
-    run(db.save_skill_state(d, 1, "2.NBT.B.7", attempts=12, correct=12))
+    confident(d)
     c.get("/kid/1/play")
     a = active(d)
     assert a["component"].startswith("whole:")
@@ -98,10 +109,11 @@ def test_word_problem_legacy_success_cannot_skip_small_number_checks(practice):
     a = active(d)
     assert a["component"] == "story_take" and a["band"] == 1
     assert "completed with help" not in page.text.lower()
-    page = c.post("/kid/1/step", data=data_for(a, True))
+    c.post("/kid/1/step", data=data_for(a, True))
+    page = c.post("/kid/1/step", data=data_for(active(d), True))
     assert "Crossed-out buttons" in page.text
     assert "Button model" in page.text
-    assert run(db.total_attempts(d, 1)) == 0
+    assert run(db.total_attempts(d, 1)) == 5
     while active(d) and active(d)["id"] == a["id"]:
         c.post("/kid/1/step", data=data_for(active(d)))
     c.get("/kid/1/play")
@@ -110,21 +122,45 @@ def test_word_problem_legacy_success_cannot_skip_small_number_checks(practice):
     assert "Below 10, no exchanging" in c.get("/parent").text
 
 
+def confident(d):
+    run(d.run("DELETE FROM attempt"))
+    run(db.save_skill_state(d, 1, "2.NBT.B.7", attempts=12, correct=12))
+
+
 def test_whole_failure_is_recorded_once_even_after_guided_completion(practice):
     c, d = practice
-    run(db.save_skill_state(d, 1, "2.NBT.B.7", attempts=12, correct=12))
+    confident(d)
     c.get("/kid/1/play")
     c.post("/kid/1/step", data=data_for(active(d), True))
     assert run(db.total_attempts(d, 1)) == 1
+    c.post("/kid/1/step", data=data_for(active(d), True))  # the retry is missed too
+    assert run(db.total_attempts(d, 1)) == 2
     for _ in range(20):
         a = active(d)
         if not a:
             break
         c.post("/kid/1/step", data=data_for(a))
-    assert run(db.total_attempts(d, 1)) == 1
-    assert run(d.first("SELECT correct FROM attempt"))["correct"] == 0
+    assert run(db.total_attempts(d, 1)) == 2
+    assert run(d.first("SELECT SUM(correct) AS c FROM attempt"))["c"] == 0
     summary = run(teaching.summary(d, run(db.get_active_session(d, 1))["id"]))
-    assert summary == {"independent": 1, "correct": 0, "guided": 1, "checks": 0}
+    assert summary == {"independent": 2, "correct": 0, "guided": 1, "checks": 0}
+
+
+def test_one_slip_gets_a_retry_not_a_lesson(practice):
+    c, d = practice
+    confident(d)
+    c.get("/kid/1/play")
+    first = active(d)
+    page = c.post("/kid/1/step", data=data_for(first, True))
+    assert "one more like it" in page.text
+    page = c.post("/kid/1/step", data=data_for(active(d)))
+    assert "practiced" in page.text.lower()
+    rows = run(d.all("SELECT correct, prompt FROM attempt ORDER BY id"))
+    assert [r["correct"] for r in rows] == [0, 1]
+    assert rows[0]["prompt"] != rows[1]["prompt"]
+    whole = run(teaching.states(d, 1))[(first["component"], first["band"])]
+    assert whole["stage"] != "guided"
+    assert [e["mode"] for e in whole["evidence"]][-1] == "retry"
 
 
 def test_component_checks_are_celebrated_without_counting_as_whole_answers(practice):
@@ -139,10 +175,13 @@ def test_component_checks_are_celebrated_without_counting_as_whole_answers(pract
 
 def test_abandoned_entry_check_preserves_need_for_teaching(practice):
     c, d = practice
-    run(db.save_skill_state(d, 1, "2.NBT.B.7", attempts=100, correct=100))
+    confident(d)
     c.get("/kid/1/play")
     a = active(d)
     c.post("/kid/1/step", data=data_for(a, True))
+    state = run(teaching.states(d, 1))[(a["component"], a["band"])]
+    assert state["stage"] == "probe"  # one miss alone decides nothing
+    c.post("/kid/1/step", data=data_for(active(d), True))
     state = run(teaching.states(d, 1))[(a["component"], a["band"])]
     assert state["stage"] == "guided"
     run(db.end_session(d, a["session_id"], db.now_iso()))
@@ -190,6 +229,7 @@ def test_new_mastery_requires_confirmation_on_a_later_day(practice):
     from mathkids.mastery import MASTER_SCORE
 
     c, d = practice
+    confident(d)
     run(db.save_skill_state(d, 1, "2.NBT.B.7", level=5, attempts=100, correct=100,
                            score=MASTER_SCORE - 0.001))
     session = run(db.get_active_session(d, 1))

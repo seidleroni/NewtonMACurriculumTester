@@ -90,6 +90,10 @@ def test_two_independent_misses_reopen_only_that_state():
 def test_wrong_probe_opens_instruction_without_claiming_success():
     task = l.task("add_ones", 3, "probe", 10)
     progress = l.advance(task, l.initial_progress(task), False)
+    # One miss earns a fresh problem of the same kind first.
+    assert progress["twin"] and not progress["recovery"] and not progress["clean"]
+    assert progress["steps"] == [task["twin"]]
+    progress = l.advance(task, progress, False)
     assert progress["recovery"] and not progress["clean"]
     while not progress["outcome"]:
         progress = l.advance(task, progress, True)

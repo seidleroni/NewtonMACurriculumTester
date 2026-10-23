@@ -20,8 +20,8 @@ from fastapi.templating import Jinja2Templates
 
 from mathkids import db, history, learning, teaching
 from mathkids.engine import REGISTRY, SEQUENCES, Problem
-from mathkids.mastery import MasteryState, apply_attempt, is_mastered, stars
-from mathkids.scheduler import Slot, compose_session, next_due, next_to_introduce, update_box
+from mathkids.mastery import MasteryState, apply_attempt, is_retained, stars
+from mathkids.scheduler import Slot, compose_blocks, next_due, next_to_introduce, update_box
 
 FAST_MS = 8000  # answers quicker than this earn the speed bonus
 
@@ -110,20 +110,27 @@ def grade_sequence(grade: int) -> list[str]:
     return SEQUENCES.get(grade, [])
 
 
-def row_to_slot(row, skill) -> Slot:
+def mastered(row, skill, answers: dict) -> bool:
+    return is_retained(row["score"], row["level"], skill.max_level, row["mastered_at"],
+                       answers.get(skill.id, []))
+
+
+def row_to_slot(row, skill, answers: dict) -> Slot:
     return Slot(
         skill_id=skill.id,
         level=row["level"],
         score=row["score"],
         box=row["box"],
         due_at=row["due_at"],
-        mastered=is_mastered(row["score"], row["level"], skill.max_level),
+        mastered=mastered(row, skill, answers),
+        attempts=row["attempts"],
     )
 
 
-def build_slots(states: dict, sequence: list[str]) -> dict[str, Slot]:
+def build_slots(states: dict, sequence: list[str], answers: dict) -> dict[str, Slot]:
+    """`answers` comes from db.recent_answers: earned mastery lapses only on recent misses."""
     return {
-        sid: row_to_slot(states[sid], REGISTRY[sid])
+        sid: row_to_slot(states[sid], REGISTRY[sid], answers)
         for sid in sequence
         if sid in states and sid in REGISTRY
     }
@@ -135,7 +142,8 @@ async def ensure_introductions(dbx, kid_id: int, sequence: list[str], today: int
         for sid in sequence[:2]:
             await db.introduce_skill(dbx, kid_id, sid, today, now)
         return
-    nxt = next_to_introduce(build_slots(states, sequence), sequence)
+    answers = await db.recent_answers(dbx, kid_id)
+    nxt = next_to_introduce(build_slots(states, sequence, answers), sequence)
     if nxt:
         await db.introduce_skill(dbx, kid_id, nxt, today, now)
 
@@ -196,11 +204,15 @@ async def start(request: Request, kid_id: int):
         sequence = grade_sequence(kid["grade"])
         await ensure_introductions(dbx, kid_id, sequence, today, now)
         states = await db.get_skill_states(dbx, kid_id)
-        slots = build_slots(states, sequence)
-        plan_ids = compose_session(slots, sequence, today, n=kid["daily_goal"])
+        slots = build_slots(states, sequence, await db.recent_answers(dbx, kid_id))
+        taught = tuple(s for s in sequence if s in slots and not slots[s].mastered
+                       and s in learning.SUPPORTED) if teaching_on else ()
+        reviews, rest = compose_blocks(slots, sequence, today, n=kid["daily_goal"], checks=taught)
+        rng = random.SystemRandom()
         plan = [
-            {"skill": sid, "level": slots[sid].level, "seed": random.SystemRandom().randrange(2**52)}
-            for sid in plan_ids
+            {"skill": sid, "level": slots[sid].level, "seed": rng.randrange(2**52),
+             **({"review": True} if i < len(reviews) else {})}
+            for i, sid in enumerate(reviews + rest)
         ]
         await db.create_session(dbx, kid_id, json.dumps(plan), today, now,
                                 teaching_budget=kid["daily_goal"] if teaching_on else None)
@@ -209,8 +221,20 @@ async def start(request: Request, kid_id: int):
         dbx.close()
 
 
+async def defer_slot(dbx, session: dict, plan: list[dict]) -> None:
+    """Skip a slot whose work does not fit what is left of the set. The plan keeps a
+    record so the parent can see what was not reached."""
+    idx = session["answered"]
+    plan[idx]["deferred"] = True
+    await dbx.run(
+        "UPDATE session SET answered = answered + 1, plan = ? "
+        "WHERE id = ? AND answered = ? AND ended_at IS NULL",
+        json.dumps(plan), session["id"], idx,
+    )
+
+
 @app.get("/kid/{kid_id}/play")
-async def play(request: Request, kid_id: int):
+async def play(request: Request, kid_id: int, empty: int = 0):
     dbx = database(request)
     try:
         kid = await db.get_kid(dbx, kid_id)
@@ -238,13 +262,14 @@ async def play(request: Request, kid_id: int):
         st = await db.get_skill_state(dbx, kid_id, skill.id)
         if info and skill.id in learning.SUPPORTED:
             activity = await teaching.get_activity(dbx, session, item, skill, regenerate(item))
-            if activity and activity.get("budget_end"):
-                await db.end_session(dbx, session["id"], db.now_iso())
-                return RedirectResponse(f"/kid/{kid_id}/done", status_code=303)
+            if activity and activity.get("defer"):
+                await defer_slot(dbx, session, plan)
+                return RedirectResponse(f"/kid/{kid_id}/play", status_code=303)
             if activity is None:
                 return RedirectResponse(f"/kid/{kid_id}/play", status_code=303)
             return templates.TemplateResponse(request, "teaching.html",
-                                              teaching.page_context(activity, kid, skill, info))
+                                              teaching.page_context(activity, kid, skill, info,
+                                                                    empty=bool(empty)))
         if st["lesson_seen"] == 0:
             return templates.TemplateResponse(
                 request,
@@ -271,6 +296,7 @@ async def play(request: Request, kid_id: int):
                 "stars": stars(st["score"]),
                 "level": st["level"],
                 "max_level": skill.max_level,
+                "empty": bool(empty),
             },
         )
     finally:
@@ -311,6 +337,9 @@ async def answer(
         info = await teaching.session_info(dbx, session["id"])
         if bool(info) != teaching.enabled(request) or (info and skill.id in learning.SUPPORTED):
             return RedirectResponse(f"/kid/{kid_id}/play", status_code=303)
+        if not answer.strip():
+            # A blank submit is not an answer: ask again and record nothing.
+            return RedirectResponse(f"/kid/{kid_id}/play?empty=1", status_code=303)
         problem = regenerate(item)
         result = problem.answer.grade(answer)
         correct = result.correct
@@ -394,6 +423,9 @@ async def teaching_step(
         if (not activity or activity["revision"] != revision
                 or activity["slot"] != session["answered"] or activity["outcome"]):
             return RedirectResponse(f"/kid/{kid_id}/play", status_code=303)
+        if not answer.strip():
+            return RedirectResponse(f"/kid/{kid_id}/activity/{activity_id}?empty=1",
+                                    status_code=303)
         skill = REGISTRY[activity["skill_id"]]
         saved = await teaching.submit(dbx, session, activity, answer, ms, skill)
         if not saved:
@@ -404,7 +436,7 @@ async def teaching_step(
 
 
 @app.get("/kid/{kid_id}/activity/{activity_id}")
-async def teaching_activity(request: Request, kid_id: int, activity_id: int):
+async def teaching_activity(request: Request, kid_id: int, activity_id: int, empty: int = 0):
     dbx = database(request)
     try:
         activity = await dbx.first(
@@ -417,7 +449,7 @@ async def teaching_activity(request: Request, kid_id: int, activity_id: int):
             return RedirectResponse("/", status_code=303)
         return templates.TemplateResponse(request, "teaching.html", teaching.page_context(
             activity, await db.get_kid(dbx, kid_id), REGISTRY[activity["skill_id"]],
-            await teaching.session_info(dbx, session["id"]),
+            await teaching.session_info(dbx, session["id"]), empty=bool(empty),
         ))
     finally:
         dbx.close()
@@ -434,7 +466,8 @@ async def done(request: Request, kid_id: int):
         learning_summary = await teaching.summary(dbx, session["id"]) if session else None
         states = await db.get_skill_states(dbx, kid_id)
         sequence = grade_sequence(kid["grade"])
-        nxt = next_to_introduce(build_slots(states, sequence), sequence)
+        answers = await db.recent_answers(dbx, kid_id)
+        nxt = next_to_introduce(build_slots(states, sequence, answers), sequence)
 
         practiced = []
         if session:
@@ -449,9 +482,7 @@ async def done(request: Request, kid_id: int):
                     {
                         "title": sk.title,
                         "stars": stars(row["score"]) if row else 0,
-                        "mastered": is_mastered(row["score"], row["level"], sk.max_level)
-                        if row
-                        else False,
+                        "mastered": mastered(row, sk, answers) if row else False,
                     }
                 )
         emoji, headline = celebration_headline(
@@ -496,6 +527,7 @@ async def done(request: Request, kid_id: int):
 
 async def domain_groups(dbx, kid_id: int, states: dict, sequence: list[str]) -> list[dict]:
     """Group a kid's skill sequence by Common Core domain, in curriculum order."""
+    answers = await db.recent_answers(dbx, kid_id)
     groups: list[dict] = []
     by_name: dict[str, dict] = {}
     for sid in sequence:
@@ -516,7 +548,7 @@ async def domain_groups(dbx, kid_id: int, states: dict, sequence: list[str]) -> 
                     "stars": stars(row["score"]),
                     "level": row["level"],
                     "max_level": sk.max_level,
-                    "mastered": is_mastered(row["score"], row["level"], sk.max_level),
+                    "mastered": mastered(row, sk, answers),
                     "recent": await db.recent_correctness(dbx, kid_id, sid, 8),
                 }
             )
@@ -561,19 +593,21 @@ async def parent(request: Request):
             sequence = grade_sequence(kid["grade"])
             introduced = [sid for sid in sequence if sid in states]
 
-            slots = build_slots(states, sequence)
+            answers = await db.recent_answers(dbx, kid["id"])
+            slots = build_slots(states, sequence, answers)
             non_mastered = [sid for sid in sequence if sid in slots and not slots[sid].mastered]
             focus = (
                 (REGISTRY[non_mastered[0]].title, non_mastered[0]) if non_mastered else None
             )
 
+            # Recent real answers only: blanks and old weeks don't make a trouble spot.
             trouble = None
             worst = 2.0
             for sid in introduced:
-                row = states[sid]
-                if row["attempts"] >= 3:
-                    acc = row["correct"] / row["attempts"]
-                    if acc < worst:
+                recent = [c for c, _ in answers.get(sid, [])][-10:]
+                if len(recent) >= 3:
+                    acc = sum(recent) / len(recent)
+                    if acc < worst and acc < 1:
                         worst, trouble = acc, (REGISTRY[sid].title, round(acc * 100), sid)
 
             kids_data.append(

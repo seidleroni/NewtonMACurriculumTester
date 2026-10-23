@@ -163,6 +163,12 @@ h1, h2 { color: var(--accent); }
 .work { text-align: left; margin: 1rem 0; }
 .work ol { padding-left: 1.5rem; }
 .work li { margin: .5rem 0; }
+.placegrid { margin: 1rem auto; border-collapse: collapse; font-size: 1.2rem; }
+.placegrid th, .placegrid td { padding: .35rem .7rem; border: 1px solid #c9bfe0; text-align: right; }
+.placegrid th { font-weight: 600; background: #f6f2fd; }
+.placegrid tr.total td, .placegrid tr.total th { border-top: 3px solid #7a62b8; }
+.placegrid td.now, .placegrid-answer.now { background: #ffe9a8; font-weight: 700; }
+.placegrid-answer { display: inline-block; padding: .2rem .6rem; font-size: 1.2rem; }
 .history-set { margin: 2rem 0; padding: 1rem; background: white; border-radius: .75rem; }
 .history-set h2 small { display: block; font-size: .85rem; font-weight: normal; }
 .history-problems { padding-left: 1.5rem; }

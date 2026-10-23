@@ -252,6 +252,27 @@ async def submit_answer(
     return changes[0] == 1
 
 
+async def recent_answers(dbx, kid_id: int, limit: int = 20) -> dict[str, list[tuple[int, int]]]:
+    """Each skill's latest unaided answers as (correct, level) pairs, oldest first.
+
+    Blank submissions are not answers, and possible duplicate submissions (same
+    prompt, answer and timestamp) count once, so neither can sink a mastery decision."""
+    rows = await dbx.all(
+        """SELECT skill_id, correct, level FROM (
+             SELECT skill_id, correct, level,
+                    ROW_NUMBER() OVER (PARTITION BY skill_id ORDER BY id DESC) AS rn
+             FROM (SELECT skill_id, correct, level, MAX(id) AS id FROM attempt
+                   WHERE kid_id = ? AND TRIM(COALESCE(given, '')) <> ''
+                   GROUP BY skill_id, prompt, given, created_at))
+           WHERE rn <= ? ORDER BY skill_id, rn DESC""",
+        kid_id, limit,
+    )
+    result: dict[str, list[tuple[int, int]]] = {}
+    for r in rows:
+        result.setdefault(r["skill_id"], []).append((r["correct"], r["level"]))
+    return result
+
+
 async def recent_correctness(dbx, kid_id: int, skill_id: str, limit: int = 10) -> list[int]:
     rows = await dbx.all(
         "SELECT correct FROM attempt WHERE kid_id = ? AND skill_id = ? "

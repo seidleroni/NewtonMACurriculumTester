@@ -3,11 +3,14 @@ from __future__ import annotations
 
 import json
 import os
+import random
 
 from mathkids import db, learning
 from mathkids.answers import IntegerAnswer
 from mathkids.engine import REGISTRY
-from mathkids.mastery import MASTER_SCORE, MasteryState, apply_attempt, is_mastered
+from mathkids.mastery import (
+    MASTER_SCORE, MasteryState, apply_attempt, is_mastered, recent_misses,
+)
 from mathkids.scheduler import next_due, update_box
 
 
@@ -37,7 +40,56 @@ def ready(state: dict) -> bool:
     )
 
 
+CHECK_MISSES = 2  # misses among the last CHECK_WINDOW answers at a level that open teaching
+CHECK_WINDOW = 5
+
+
+async def needs_check(dbx, kid_id: int, skill_id: str, level: int) -> bool:
+    """Recent unaided answers at this level choose ingredient checks; lifetime accuracy
+    does not (one bad week in June must not decide October). Blank and duplicate
+    submissions are excluded. They never certify independence either way."""
+    answers = (await db.recent_answers(dbx, kid_id)).get(skill_id, [])
+    return recent_misses(answers, level, CHECK_WINDOW) >= CHECK_MISSES
+
+
+async def teaching_used(dbx, session_id: int) -> int:
+    row = await dbx.first(
+        """SELECT COUNT(*) AS n FROM step_response r JOIN practice_activity a
+           ON a.id = r.activity_id WHERE a.session_id = ? AND r.mode IN ('guided','faded')""",
+        session_id,
+    )
+    return row["n"]
+
+
+def whole_snapshot(skill, item: dict, problem, band: int, mode: str, path: list[str],
+                   review: bool) -> dict:
+    component = f"whole:{skill.id}:{item['level']}"
+    first = learning.step(problem.prompt, problem.answer.value, component,
+                          "Let's check the parts of the problem together.")
+    snapshot = dict(
+        version=learning.VERSION, component=component, band=band, mode=mode,
+        seed=item["seed"], prompt=problem.prompt, explanation="",
+        steps=[dict(first, assess=True, seed=item["seed"])], model=[], twin=None,
+        recovery=None, single_try=review,
+        remediation={c: learning.smaller_example(c, item["seed"] + i)
+                     for i, c in enumerate(learning.TITLES)},
+    )
+    if not review:
+        twin_seed = item["seed"] + learning.TWIN_OFFSET
+        twin = skill.generate(item["level"], random.Random(twin_seed))
+        snapshot["twin"] = dict(learning.step(twin.prompt, twin.answer.value, component,
+                                              "Let's check the parts of the problem together."),
+                                assess=True, seed=twin_seed)
+        snapshot["recovery"] = learning.task(
+            "story_start" if skill.id == "2.OA.A.1" else path[0], band, "guided",
+            item["seed"] + 104729,
+        )
+    return snapshot
+
+
 async def get_activity(dbx, session: dict, item: dict, skill, problem):
+    """Return the activity for the current slot, creating it if needed, or
+    {"defer": True} when this slot's work does not fit what is left of the set."""
     slot, sid, kid_id = session["answered"], session["id"], session["kid_id"]
     existing = await dbx.first(
         "SELECT * FROM practice_activity WHERE session_id=? AND slot=?", sid, slot
@@ -47,13 +99,16 @@ async def get_activity(dbx, session: dict, item: dict, skill, problem):
     known = await states(dbx, kid_id)
     info = await session_info(dbx, sid)
     band, path = learning.requirements(skill.id, item["level"])
+    requirements_band = band
     whole = f"whole:{skill.id}:{item['level']}"
     whole_state = known.get((whole, band), learning.empty_state(whole, band))
-    legacy = await db.get_skill_state(dbx, kid_id, skill.id)
-    # Historical outcomes select a starting check; they never certify independence.
-    needs_check = legacy["attempts"] >= 3 and legacy["correct"] / legacy["attempts"] < 0.85
+    review = bool(item.get("review"))
     component = whole
-    if whole_state["stage"] == "guided" or (needs_check and not ready(whole_state)):
+    if review:
+        pass  # a review is one unaided whole problem, whatever is being taught
+    elif whole_state["stage"] == "guided" or (
+        await needs_check(dbx, kid_id, skill.id, item["level"]) and not ready(whole_state)
+    ):
         component = next((c for c in path if not ready(
             known.get((c, band), learning.empty_state(c, band))
         )), whole)
@@ -63,7 +118,7 @@ async def get_activity(dbx, session: dict, item: dict, skill, problem):
                and known[(c, band)]["due_at"] <= db.today_ordinal()]
         if due:
             component = min(due, key=lambda c: known[(c, band)]["due_at"])
-    if skill.id == "2.OA.A.1":
+    if skill.id == "2.OA.A.1" and not review:
         from mathkids.word_learning import select
         target = select(known, item["level"], db.today_ordinal())
         component, band = target if target else (whole, band)
@@ -71,28 +126,40 @@ async def get_activity(dbx, session: dict, item: dict, skill, problem):
     mode = state["stage"]
     if component == whole:
         mode = "independent" if mode == "guided" else mode
-        snapshot = dict(
-            version=learning.VERSION, component=component, band=band, mode=mode,
-            seed=item["seed"], prompt=problem.prompt, explanation="",
-            steps=[learning.step(problem.prompt, problem.answer.value, component,
-                                 "Let's check the parts of the problem together.")],
-            recovery=learning.task("story_start" if skill.id == "2.OA.A.1" else path[0],
-                                   band, "guided", item["seed"] + 104729),
-            model=[], remediation={c: learning.smaller_example(c, item["seed"] + i)
-                                   for i, c in enumerate(learning.TITLES)},
-        )
+        snapshot = whole_snapshot(skill, item, problem, band, mode, path, review)
     else:
         introduced = info["introduced"]
         key = f"{component}:{band}"
         if mode in {"probe", "guided", "faded"} and introduced and introduced != key:
-            # Practice the idea already taught in this set instead of piling on another.
-            component, band_text = introduced.rsplit(":", 1)
-            band = int(band_text)
-            state = known.get((component, band), learning.empty_state(component, band))
-            mode = state["stage"]
-        snapshot = learning.task(component, band, mode, item["seed"])
-    if info["used"] > 0 and len(snapshot["steps"]) > info["budget"] - info["used"]:
-        return {"budget_end": True}
+            taught, band_text = introduced.rsplit(":", 1)
+            if taught in path and int(band_text) == band:
+                # Practice the idea already taught in this set instead of piling on another.
+                component = taught
+                state = known.get((component, band), learning.empty_state(component, band))
+                mode = state["stage"]
+            elif mode in {"guided", "faded"}:
+                # Another skill's idea is today's lesson: practice this one unaided.
+                component, band, mode = whole, requirements_band, "practice"
+        if mode != "practice":
+            established = frozenset(c for (c, b), s in known.items()
+                                    if b == band and s["stage"] == "established")
+            snapshot = learning.task(component, band, mode, item["seed"], established)
+    spent = await teaching_used(dbx, sid)
+    if mode in {"guided", "faded"} and spent > 0 and \
+            spent + len(snapshot["steps"]) > info["budget"] // 2:
+        # One lesson per set may run past the budget (it is bounded); further teaching
+        # stays within about half the set, so reviews and other practice still happen.
+        component, band, mode = whole, requirements_band, "practice"
+    if mode == "practice":
+        snapshot = whole_snapshot(skill, item, problem, band, "independent", path, True)
+        mode = snapshot["mode"]
+    elif spent > 0 and mode not in {"guided", "faded"}:
+        # Tonight's lesson already happened: a missed check waits for the next set.
+        snapshot["recovery"] = None
+    first_lesson = mode in {"guided", "faded"} and spent == 0
+    fits = len(snapshot["steps"]) <= info["budget"] - info["used"]
+    if info["used"] > 0 and not first_lesson and not fits:
+        return {"defer": True}
     await dbx.run(
         "INSERT OR IGNORE INTO learning_state (kid_id,component,band) VALUES (?,?,?)",
         kid_id, component, band,
@@ -113,12 +180,40 @@ async def get_activity(dbx, session: dict, item: dict, skill, problem):
     return await dbx.first("SELECT * FROM practice_activity WHERE session_id=? AND slot=?", sid, slot)
 
 
-def page_context(activity: dict, kid: dict, skill, info: dict) -> dict:
+def grid(table: dict, progress: dict, current: dict | None) -> dict:
+    """Rows of place-value cells for the screen: given cells, answered cells, and the
+    one cell the current question fills (marked so it stands out)."""
+    values = {(str(r), p): v for r, p, v in table["given"]}
+    for w in progress["work"]:
+        if w.get("cell"):
+            values[(str(w["cell"][0]), w["cell"][1])] = w["answer"]
+    now = (str(current["cell"][0]), current["cell"][1]) if current and current.get("cell") else None
+    sign = {"+": "Total", "-": "Left"}.get(table["op"], "")
+    labels = [(str(i), f"{table['op'] if i and table['op'] else ''} {n:,}".strip())
+              for i, n in enumerate(table["nums"])]
+    if table["op"]:
+        labels.append(("sum", sign))
+
+    def cells(row):
+        return [dict(value=values.get((row, p)), now=now == (row, p)) for p in table["places"]]
+
+    return dict(
+        heads=[learning.PLACES[p].capitalize() for p in table["places"]],
+        rows=[dict(label=label, cells=cells(row), total=row == "sum") for row, label in labels],
+        answer=values.get(("answer", 0)), answer_now=now == ("answer", 0),
+    )
+
+
+def page_context(activity: dict, kid: dict, skill, info: dict, empty: bool = False) -> dict:
     snapshot = json.loads(activity["snapshot"])
     progress = json.loads(activity["progress"])
+    current = None if progress["outcome"] else progress["steps"][progress["index"]]
+    source = snapshot["recovery"] if progress["recovery"] and snapshot.get("recovery") else snapshot
+    table = source.get("table")
     return dict(
         kid=kid, skill=skill, activity=activity, snapshot=snapshot, progress=progress,
-        current=None if progress["outcome"] else progress["steps"][progress["index"]],
+        current=current, empty=empty,
+        grid=grid(table, progress, current) if table and not progress.get("twin") else None,
         stage=learning.STAGES[activity["mode"]],
         title=learning.TITLES.get(activity["component"], "Try it yourself"),
         remaining=max(0, info["budget"] - info["used"]),
@@ -133,17 +228,34 @@ async def submit(dbx, session: dict, activity: dict, raw: str, ms: int, skill) -
         return False
     current = before["steps"][before["index"]]
     correct = IntegerAnswer(current["answer"]).grade(raw).correct
-    after = learning.advance(snapshot, before, correct)
+    after = learning.advance(snapshot, before, correct, raw)
     done = after["outcome"] is not None
     kid_id, sid, aid = session["kid_id"], session["id"], activity["id"]
     now, today = db.now_iso(), db.today_ordinal()
     known = await states(dbx, kid_id)
     state = known[(activity["component"], activity["band"])]
-    # Persist a failed entry check immediately, even if the child stops mid-lesson.
-    assessment = activity["component"].startswith("whole:") and activity["revision"] == 0
-    new_state = learning.evidence_update(
-        state, after["clean"], today, snapshot["seed"], activity["mode"]
-    ) if done or assessment else state
+    whole = activity["component"].startswith("whole:")
+    # Unaided answers (the first try and its one retry) are evidence the moment they are
+    # given, even if the child stops mid-lesson. Older snapshots mark only revision 0.
+    copied = bool(after.get("copy_retry")) and not before.get("copy_retry")
+    checked = bool(current.get("assess", whole and activity["revision"] == 0)) and not copied
+    assessment = whole and checked
+    if checked:
+        retry = bool(before.get("twin"))
+        new_state = learning.evidence_update(
+            state, correct, today, current.get("seed", snapshot["seed"]),
+            "retry" if retry else activity["mode"], lenient=whole,
+            twin_pending=not correct and not retry and bool(snapshot.get("twin")),
+        )
+    elif done:
+        # The idea being learned is judged by its own steps; a slip on an
+        # ingredient step is recorded against that ingredient instead.
+        clean = after["components"].get(activity["component"], after["clean"])
+        new_state = learning.evidence_update(
+            state, clean, today, snapshot["seed"], activity["mode"], lenient=whole,
+        )
+    else:
+        new_state = state
     # Record the FIRST whole-problem answer, even if automatic teaching follows.
     st = await db.get_skill_state(dbx, kid_id, skill.id)
     fields = None
@@ -255,7 +367,7 @@ async def summary(dbx, session_id: int) -> dict | None:
         session_id,
     )
     practice = await dbx.first(
-        """SELECT COUNT(*) AS completed, COALESCE(SUM(outcome!='independent'),0) AS guided
+        """SELECT COUNT(*) AS completed, COALESCE(SUM(outcome NOT IN ('independent','missed')),0) AS guided
            , COALESCE(SUM(outcome='independent' AND component NOT LIKE 'whole:%'),0) AS checks
            FROM practice_activity WHERE session_id=? AND outcome IS NOT NULL""", session_id,
     )

@@ -8,7 +8,8 @@ from __future__ import annotations
 import copy
 import random
 
-VERSION = 2
+VERSION = 3
+TWIN_OFFSET = 7919  # seed offset for the one retry problem after an unaided miss
 SUPPORTED = {"2.OA.A.1", "2.NBT.B.5", "2.NBT.B.6", "2.NBT.B.7", "3.NBT.A.2", "4.NBT.B.4"}
 TITLES = {
     "decompose": "Break numbers into parts",
@@ -46,6 +47,21 @@ def places(n: int) -> list[int]:
 
 def parts(n: int) -> str:
     return " + ".join(str(n // p % 10 * p) for p in places(n))
+
+
+def missing_part(n: int, p: int) -> str:
+    """The equation form ("341 = 300 + ___ + 1") that children read more reliably than
+    "What is the tens part worth?", which invites answering with the place's name."""
+    return f"{n:,} = " + " + ".join(
+        "___" if q == p else str(n // q % 10 * q) for q in places(n)
+    )
+
+
+def table_for(nums: list[int], op: str, given=()) -> dict:
+    """A hundreds/tens/ones grid the screen fills in as steps are answered. Rows are
+    the numbers, then the combined row; `given` cells are shown filled from the start."""
+    return dict(places=places(max(nums)), nums=list(nums), op=op,
+                given=[list(g) for g in given])
 
 
 def requirements(skill_id: str, level: int) -> tuple[int, list[str]]:
@@ -98,7 +114,11 @@ def empty_state(component: str, band: int) -> dict:
                 evidence=[], due_at=0, revision=0)
 
 
-def evidence_update(state: dict, correct: bool, day: int, seed: int, mode: str) -> dict:
+def evidence_update(state: dict, correct: bool, day: int, seed: int, mode: str, *,
+                    twin_pending: bool = False, lenient: bool = False) -> dict:
+    """`twin_pending`: a retry problem follows this miss, so it alone decides nothing.
+    `lenient`: one unaided miss never reopens teaching (whole problems); two misses in
+    the last three unaided answers still do. A missed retry ("retry" mode) always does."""
     state = copy.deepcopy(state)
     history = state["evidence"]
     # A repeated seed cannot manufacture fresh evidence.
@@ -116,10 +136,14 @@ def evidence_update(state: dict, correct: bool, day: int, seed: int, mode: str) 
             state["streak"] = 0
     else:
         recent = [e for e in history if e["mode"] not in {"guided", "faded"}][-3:]
-        if not correct and (stage == "probe" or sum(not e["correct"] for e in recent) >= 2):
+        demote = not correct and not twin_pending and (
+            mode == "retry" or (stage == "probe" and not lenient)
+            or sum(not e["correct"] for e in recent) >= 2
+        )
+        if demote:
             state["stage"] = "guided"
             state["streak"] = 0
-        elif len(recent) == 3 and all(e["correct"] for e in recent):
+        elif correct and len(recent) == 3 and all(e["correct"] for e in recent):
             state["stage"] = (
                 "established" if len({e["day"] for e in recent}) >= 2 else "independent"
             )
@@ -128,9 +152,13 @@ def evidence_update(state: dict, correct: bool, day: int, seed: int, mode: str) 
     return state
 
 
-def step(prompt: str, answer: int, component: str, feedback: str, *, choices=None) -> dict:
-    return dict(prompt=prompt, answer=answer, component=component,
-                feedback=feedback, choices=choices or [])
+def step(prompt: str, answer: int, component: str, feedback: str, *, choices=None,
+         cell=None) -> dict:
+    result = dict(prompt=prompt, answer=answer, component=component,
+                  feedback=feedback, choices=choices or [])
+    if cell is not None:
+        result["cell"] = list(cell)
+    return result
 
 
 def smaller_example(component: str, seed: int) -> dict:
@@ -208,24 +236,32 @@ def operands(component: str, band: int, rng: random.Random) -> tuple[list[int], 
                 return nums, "+"
 
 
+def singular(place: str) -> str:
+    return place[:-1] if place.endswith("s") else place
+
+
 def arithmetic_steps(nums: list[int], op: str, component: str, mode: str) -> list[dict]:
-    """Construct a concrete solution, with value-preserving exchanges."""
+    """Construct a concrete solution, with value-preserving exchanges. Each step names
+    the table cell it fills: [row, place] for a number's part, ["sum", place] for the
+    combined row, and ["answer", 0] for the final total."""
     result = []
     ps = places(max(nums))
     if mode == "guided":
-        for n in nums:
-            for p in ps:
+        for i, n in enumerate(nums):
+            # Ones first, so the previous step's answer is never a plausible copy.
+            for p in reversed(places(n)):
                 result.append(step(
-                    f"Break apart {n:,}. What is the {PLACES[p]} part worth?",
+                    f"{missing_part(n, p)}. What is missing?",
                     n // p % 10 * p, "decompose",
                     f"The {PLACES[p]} digit counts groups of {p:,}. {n:,} = {parts(n)}.",
+                    cell=(i, p),
                 ))
     if op == "+":
         totals = {p: sum(n // p % 10 * p for n in nums) for p in ps}
         for p in ps:
             expr = " + ".join(str(n // p % 10 * p) for n in nums)
             result.append(step(f"Add the {PLACES[p]}: {expr} = ?", totals[p], "add_parts",
-                               f"Add matching places. {expr} = {totals[p]}.",))
+                               f"Add matching places. {expr} = {totals[p]}.", cell=("sum", p)))
         for p in reversed(ps):
             if totals[p] >= 10 * p:
                 exchange = totals[p] // (10 * p) * (10 * p)
@@ -233,17 +269,22 @@ def arithmetic_steps(nums: list[int], op: str, component: str, mode: str) -> lis
                 result.append(step(
                     f"Break apart {totals[p]}: {totals[p]} = {exchange} + ?", rest,
                     component, f"Keep the value the same: {totals[p]} = {exchange} + {rest}.",
+                    cell=("sum", p),
                 ))
                 totals[p] = rest
                 totals[p * 10] = totals.get(p * 10, 0) + exchange
+                count = exchange // (10 * p)
+                unit = singular(PLACES[p * 10])
+                moved = f"new {unit}" if count == 1 else f"{count} new {unit}s"
                 result.append(step(
-                    f"Put {exchange} with the {PLACES[p * 10]}: "
+                    f"Add the {moved} to the {PLACES[p * 10]}: "
                     f"{totals[p * 10] - exchange} + {exchange} = ?", totals[p * 10], component,
-                    "The extra group belongs with the matching place.",
+                    f"The {moved} joins the other {PLACES[p * 10]}.", cell=("sum", p * 10),
                 ))
         expr = " + ".join(str(totals[p]) for p in sorted(totals, reverse=True))
         result.append(step(f"Put your parts together: {expr} = ?", sum(nums), component,
-                           f"Your parts name the total: {expr} = {sum(nums)}."))
+                           f"Your parts name the total: {expr} = {sum(nums)}.",
+                           cell=("answer", 0)))
     else:
         a, b = nums
         counts = {p: a // p % 10 for p in ps}
@@ -261,7 +302,7 @@ def arithmetic_steps(nums: list[int], op: str, component: str, mode: str) -> lis
                         f"Exchange {donor:,} from {before:,}. How much stays in that place?",
                         counts[donor] * donor, component,
                         f"{before:,} = {counts[donor] * donor:,} + {donor:,}. "
-                        "We move that group; we do not change the number.",
+                        "We move that group; we do not change the number.", cell=(0, donor),
                     ))
                     lower = donor // 10
                     previous = counts.get(lower, 0) * lower
@@ -269,21 +310,45 @@ def arithmetic_steps(nums: list[int], op: str, component: str, mode: str) -> lis
                     result.append(step(
                         f"Move it to the {PLACES[lower]}: {previous:,} + {donor:,} = ?",
                         counts[lower] * lower, component,
-                        f"One group of {donor:,} is ten groups of {lower:,}.",
+                        f"One group of {donor:,} is ten groups of {lower:,}.", cell=(0, lower),
                     ))
                     donor = lower
             left, right = counts[p] * p, needed * p
             differences[p] = left - right
             result.append(step(f"Subtract the {PLACES[p]}: {left} - {right} = ?",
                                left - right, "sub_parts",
-                               f"Subtract matching places: {left} - {right} = {left - right}."))
+                               f"Subtract matching places: {left} - {right} = {left - right}.",
+                               cell=("sum", p)))
         expr = " + ".join(str(differences[p]) for p in ps)
         result.append(step(f"Put your remaining parts together: {expr} = ?", a - b,
-                           component, f"{expr} = {a - b}."))
+                           component, f"{expr} = {a - b}.", cell=("answer", 0)))
     return result
 
 
-def task(component: str, band: int, mode: str, seed: int) -> dict:
+def prefill(nums: list[int], op: str, steps: list[dict], target: str,
+            known=frozenset()) -> tuple[list[dict], dict]:
+    """Split worked steps into what the child is asked and what the table already shows.
+
+    Only the idea being learned is asked: a step for an ingredient already established
+    at this band appears filled in. Number parts that are not asked for appear too."""
+    asked, given = [], []
+    for s in steps:
+        if s["component"] in known and s["component"] != target and "cell" in s:
+            given.append([*s["cell"], s["answer"]])
+        else:
+            asked.append(s)
+    asked_cells = {tuple(s["cell"]) for s in asked if "cell" in s}
+    filled = {tuple(g[:2]) for g in given}
+    for i, n in enumerate(nums):
+        for p in places(max(nums)):
+            if (i, p) not in asked_cells and (i, p) not in filled:
+                given.append([i, p, n // p % 10 * p])
+    return asked, table_for(nums, op, given)
+
+
+def task(component: str, band: int, mode: str, seed: int, known=frozenset(),
+         with_twin: bool = True) -> dict:
+    """`known`: components established at this band, shown filled in rather than asked."""
     if component.startswith("story_"):
         from mathkids.word_learning import task as story_task
         return story_task(component, band, mode, seed)
@@ -291,22 +356,24 @@ def task(component: str, band: int, mode: str, seed: int) -> dict:
     explanation = ""
     model = []
     columns = ""
+    table = None
     if component == "decompose":
         n = rng.randint(10 ** (band - 1), 10 ** band - 1)
         ps = places(n)
         if mode == "guided":
             example = 56 if band == 2 else 356
             explanation = f"{example} = {parts(example)}. Each digit tells us the value of one part."
-            steps = [step(f"Break apart {n:,}. What is the {PLACES[p]} part worth?",
+            steps = [step(f"{missing_part(n, p)}. What is missing?",
                           n // p % 10 * p, component,
                           f"The digit {n // p % 10} counts groups of {p:,}. "
-                          f"Each group is worth {p:,}.") for p in ps]
+                          f"Each group is worth {p:,}.", cell=(0, p)) for p in reversed(ps)]
             steps.append(step(f"Put it back together: {parts(n)} = ?", n, component,
-                              "The parts and the original number have the same value."))
+                              "The parts and the original number have the same value.",
+                              cell=("answer", 0)))
+            table = table_for([n], "")
         else:
             p = rng.choice(ps)
-            expr = " + ".join("___" if q == p else str(n // q % 10 * q) for q in ps)
-            steps = [step(f"{n:,} = {expr}. What is missing?", n // p % 10 * p,
+            steps = [step(f"{missing_part(n, p)}. What is missing?", n // p % 10 * p,
                           component, f"The missing part is the value of the {PLACES[p]} digit.")]
         prompt = f"Break apart {n:,}"
     elif component == "match":
@@ -316,9 +383,9 @@ def task(component: str, band: int, mode: str, seed: int) -> dict:
         options = list(dict.fromkeys(n // q % 10 * q for q in places(n)))
         prompt = f"Find matching parts in {n:,}"
         example = "43 + 25" if band == 2 else "243 + 125"
-        explanation = f"For {example}, 40 belongs with 20: they are both tens."
-        steps = [step(f"Which part of {n:,} belongs with {2 * p:,}?", value, component,
-                      f"Match {PLACES[p]} with {PLACES[p]}. {n:,} = {parts(n)}.",
+        explanation = f"For {example}, 40 and 20 are both tens, so they go together."
+        steps = [step(f"{2 * p:,} is {PLACES[p]}. Which part of {n:,} is {PLACES[p]} too?",
+                      value, component, f"Find the {PLACES[p]} in {n:,}: {n:,} = {parts(n)}.",
                       choices=options if mode == "guided" else None)]
     else:
         nums, op = operands(component, band, rng)
@@ -346,19 +413,24 @@ def task(component: str, band: int, mode: str, seed: int) -> dict:
         if mode == "guided":
             explanation += ". Watch how the parts keep the same total."
         if mode in {"guided", "faded"}:
-            steps = arithmetic_steps(nums, op, component, mode)
+            steps, table = prefill(nums, op, arithmetic_steps(nums, op, component, mode),
+                                   component, known)
         else:
             answer = sum(nums) if op == "+" else nums[0] - nums[1]
             steps = [step(prompt, answer, component,
                           "Break the numbers into place-value parts, then work with matching parts.")]
     # Immutable fallback tasks avoid re-generating any in-flight instruction.
-    recovery = None
+    recovery = twin = None
     if mode not in {"guided", "faded"}:
-        recovery = task(component, band, "guided", seed + 104729)
+        recovery = task(component, band, "guided", seed + 104729, known)
+        steps[0] = dict(steps[0], assess=True, seed=seed)
+        if with_twin:
+            twin = dict(task(component, band, mode, seed + TWIN_OFFSET, with_twin=False)["steps"][0],
+                        seed=seed + TWIN_OFFSET)
     return dict(version=VERSION, component=component, band=band, mode=mode, seed=seed,
                 prompt=prompt, explanation=explanation if mode == "guided" else "",
                 model=model if mode == "guided" else [],
-                steps=steps, recovery=recovery, columns=columns,
+                steps=steps, recovery=recovery, twin=twin, columns=columns, table=table,
                 remediation={c: smaller_example(c, seed + i) for i, c in enumerate(TITLES)})
 
 
@@ -368,14 +440,33 @@ def initial_progress(snapshot: dict) -> dict:
                 components={}, model=[])
 
 
-def advance(snapshot: dict, progress: dict, correct: bool) -> dict:
+def show(value) -> str:
+    return f"{value:,}" if isinstance(value, int) else str(value)
+
+
+def is_copy(raw: str | None, progress: dict) -> bool:
+    """True when a wrong answer repeats the previous step's answer: a misread of the
+    screen, not of the mathematics."""
+    if raw is None or not progress["work"]:
+        return False
+    typed = raw.replace(",", "").replace(" ", "")
+    return typed == str(progress["work"][-1]["answer"]) and not progress.get("copy_retry")
+
+
+def advance(snapshot: dict, progress: dict, correct: bool, raw: str | None = None) -> dict:
     """Bounded automatic instruction. Each request advances one persisted revision."""
     p = copy.deepcopy(progress)
     current = p["steps"][p["index"]]
+    if not correct and snapshot.get("version", 1) >= 3 and is_copy(raw, p):
+        # Once per activity, repeating the last answer earns a free second look.
+        p["copy_retry"] = True
+        p["message"] = "That number was the answer to the last step. Read this one again."
+        return p
     c = current["component"]
     p["components"][c] = p["components"].get(c, True) and correct
     if correct:
-        p["work"].append(dict(prompt=current["prompt"], answer=current["answer"]))
+        p["work"].append(dict(prompt=current["prompt"], answer=current["answer"],
+                              cell=current.get("cell")))
         p["index"] += 1
         p["misses"] = 0
         p["message"] = "Yes! Keep your parts together as you work."
@@ -387,7 +478,16 @@ def advance(snapshot: dict, progress: dict, correct: bool) -> dict:
     p["clean"] = False
     p["misses"] += 1
     p["message"] = current["feedback"]
-    if snapshot["recovery"] and not p["recovery"]:
+    if snapshot.get("single_try") or (p.get("twin") and not snapshot["recovery"]):
+        # A review shows the answer and moves on; teaching happens in its own block.
+        p["outcome"] = "missed"
+        p["message"] = f"The answer is {show(current['answer'])}. {current['feedback']}"
+    elif snapshot.get("twin") and current.get("assess") and not p.get("twin"):
+        # One slip earns a second problem of the same kind, not a lesson.
+        p.update(steps=[copy.deepcopy(snapshot["twin"])], index=0, misses=0, twin=True,
+                 message=f"Not quite: the answer was {show(current['answer'])}. "
+                         "Here is one more like it.")
+    elif snapshot["recovery"] and not p["recovery"]:
         # A whole-answer miss does not diagnose a cause: inspect its ingredients.
         recovery = snapshot["recovery"]
         p.update(steps=copy.deepcopy(recovery["steps"]), index=0, recovery=True,

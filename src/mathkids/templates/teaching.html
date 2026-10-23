@@ -16,12 +16,22 @@
       {% for s in snapshot.model %}<li>{{ s.prompt }} <strong>{{ s.answer }}</strong></li>{% endfor %}
     </ol>{% endif %}
   {% endif %}
-  {% if progress.work %}
-  <details class="work" open><summary>Your work</summary>
+  {% if grid %}
+  <table class="placegrid" aria-label="Place-value table">
+    <tr><th></th>{% for h in grid.heads %}<th>{{ h }}</th>{% endfor %}</tr>
+    {% for row in grid.rows %}<tr{% if row.total %} class="total"{% endif %}><th>{{ row.label }}</th>
+      {% for c in row.cells %}<td{% if c.now %} class="now"{% endif %}>{% if c.now %}?{% elif c.value is not none %}{{ '{:,}'.format(c.value) }}{% endif %}</td>{% endfor %}</tr>
+    {% endfor %}
+  </table>
+  {% if grid.answer is not none or grid.answer_now %}<p class="placegrid-answer{% if grid.answer_now %} now{% endif %}">
+    Answer: {% if grid.answer_now %}?{% else %}{{ '{:,}'.format(grid.answer) }}{% endif %}</p>{% endif %}
+  {% elif progress.work %}
+  <details class="work"><summary>Your work</summary>
     <ol>{% for s in progress.work %}<li>{{ s.prompt }} <strong>{{ s.answer }}</strong></li>{% endfor %}</ol>
   </details>
   {% endif %}
-  {% if progress.message %}<p class="teaching-message" role="status">{{ progress.message }}</p>{% endif %}
+  {% if empty %}<p class="teaching-message" role="status">Type your answer in the box first.</p>
+  {% elif progress.message %}<p class="teaching-message" role="status">{{ progress.message }}</p>{% endif %}
   {% if progress.model and not progress.work %}<ol class="teaching-example">
     {% for s in progress.model %}<li>{{ s.prompt }} <strong>{{ s.answer }}</strong></li>{% endfor %}
   </ol>{% endif %}
@@ -61,6 +71,7 @@
   {% else %}
     <p class="note">{% if progress.outcome == 'independent' %}You solved it yourself!
       {% elif progress.outcome == 'practiced' %}You practiced the steps!
+      {% elif progress.outcome == 'missed' %}Good try! This one will come back another day.
       {% else %}Good work practicing a new idea.{% endif %}</p>
     <a class="primary btn" id="next" href="/kid/{{ kid.id }}/play">Next →</a>
   {% endif %}

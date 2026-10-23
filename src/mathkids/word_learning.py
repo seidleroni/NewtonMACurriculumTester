@@ -43,7 +43,7 @@ def numbers(band, rng):
             return total, part
 
 
-def task(component, band, mode, seed):
+def task(component, band, mode, seed, with_twin=True):
     rng = random.Random(seed)
     total, change = numbers(band, rng)
     start = total - change
@@ -81,6 +81,7 @@ def task(component, band, mode, seed):
                   "How many buttons were given away?")
         diagram = f"Start: {total} → Gave away: ? → Left: {change}"
     steps = []
+    table = None
     if support:
         if mode == "guided" and component != "story_calculate":
             steps.append(l.step(f"{prompt} Which number tells us the whole, before it is split "
@@ -91,7 +92,9 @@ def task(component, band, mode, seed):
                                 f"The story says {start} buttons are left."))
         if component == "story_start_take":
             if band > 1:
-                steps.extend(l.arithmetic_steps([start, change], "+", "add_parts", "faded"))
+                worked, table = l.prefill([start, change], "+", l.arithmetic_steps(
+                    [start, change], "+", "add_parts", "faded"), "add_parts")
+                steps.extend(worked)
                 for s in steps:
                     s["component"] = component
             else:
@@ -99,7 +102,9 @@ def task(component, band, mode, seed):
                                     total, component,
                                     "The starting amount includes both the buttons left and those given away."))
         elif component == "story_calculate" and band > 1:
-            steps.extend(l.arithmetic_steps([total, change], "-", "sub_parts", "faded"))
+            worked, table = l.prefill([total, change], "-", l.arithmetic_steps(
+                [total, change], "-", "sub_parts", "faded"), "sub_parts")
+            steps.extend(worked)
             # Story tiers must not certify unrelated digit-count arithmetic states.
             for s in steps:
                 s["component"] = component
@@ -139,8 +144,14 @@ def task(component, band, mode, seed):
     elif component == "story_change_take":
         explanation = ("Example: There were 7 buttons and now 3 are left. "
                        "The missing part is the buttons given away: 7 - 3 = 4.")
-    recovery = task(component, band, "guided", seed + 104729) if not support else None
+    recovery = twin = None
+    if not support:
+        recovery = task(component, band, "guided", seed + 104729)
+        steps[0] = dict(steps[0], assess=True, seed=seed)
+        if with_twin:
+            twin = dict(task(component, band, mode, seed + l.TWIN_OFFSET, with_twin=False)["steps"][0],
+                        seed=seed + l.TWIN_OFFSET)
     return dict(version=l.VERSION, component=component, band=band, mode=mode, seed=seed,
                 prompt=prompt, explanation=explanation if mode == "guided" else "", model=[],
-                steps=steps, recovery=recovery, columns="",
+                steps=steps, recovery=recovery, twin=twin, columns="", table=table,
                 remediation={c: l.smaller_example(c, seed + i) for i, c in enumerate(l.TITLES)})

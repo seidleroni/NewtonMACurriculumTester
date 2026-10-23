@@ -11,6 +11,7 @@
 <div class="problem">
   {% if image_spec %}<div class="figure" data-image-spec="{{ image_spec }}" role="img" aria-label="figure for this problem"></div>{% endif %}
   <div class="prompt{% if problem.prompt|length > 80 %} long{% endif %}">{{ problem.prompt }}</div>
+  {% if empty %}<p class="teaching-message" role="status">Type your answer in the box first.</p>{% endif %}
   <form method="post" action="/kid/{{ kid.id }}/answer" id="answer-form" autocomplete="off">
     <input type="hidden" name="idx" value="{{ idx }}">
     <input type="hidden" name="session_id" value="{{ session_id }}">
@@ -34,7 +35,7 @@
       {% endfor %}
     </div>
     {% else %}
-    <input type="text" name="answer" inputmode="text" class="answer" autofocus>
+    <input type="text" name="answer" inputmode="text" class="answer" autofocus required>
     {% endif %}
     <button type="submit" class="primary">Check</button>
   </form>
