@@ -109,6 +109,13 @@ The rules below replace the corresponding ones above.
 Snapshots record `version`; activities created before this change keep their original
 flow and render with the old work list.
 
+Deployed October 23, 2026 as Worker version `72b17bfa-9510-4bda-a329-d1a09580754c`
+(commit `d41855f`; 1,194 tests passed). At the parent's request, Samuel's three sets of
+October 22 (sessions 67, 69 and 70, which included three blank submits) were removed and
+his state restored to October 21 with `backups/ignore-samuel-20261022.sql`, rehearsed on
+a snapshot first. A full export taken just before is kept locally as
+`backups/mathkids-predeploy-20261023.sql`.
+
 ### Checking a change against real data
 
 ```powershell
