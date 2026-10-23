@@ -515,3 +515,17 @@ def test_prompt_report_flags_a_tricky_wording(tmp_path):
     rows = {r["template"]: r for r in report(str(path))}
     assert rows["Put # with the tens: # + # = ?"]["flag"]
     assert not rows["# + # = ?"]["flag"]
+
+
+def test_lesson_after_a_missed_retry_keeps_its_table(app_db):
+    c, d = app_db
+    run(db.introduce_skill(d, 1, "4.NBT.B.4", db.today_ordinal(), db.now_iso()))
+    start_plan(d, [{"skill": "4.NBT.B.4", "level": 1, "seed": 51}])
+    c.get("/kid/1/play")
+    _, a = current(d)
+    assert a["component"].startswith("whole:")
+    c.post("/kid/1/step", data=step_data(a, right(a) + 1))
+    _, a = current(d)
+    page = c.post("/kid/1/step", data=step_data(a, right(a) + 1))
+    assert "find the part to practice" in page.text.replace("&#39;", "'")
+    assert 'class="placegrid"' in page.text

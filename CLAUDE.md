@@ -47,6 +47,13 @@ WHERE a.correct = 0 ORDER BY a.created_at;
 
 `skill_id` values are Common Core ids (e.g. `2.NBT.A.1`); the generator for a skill lives in `src/mathkids/engine/grade{N}/{domain}.py` and is findable by grepping for the id.
 
+To analyse or test against real data, copy production into a migrated local SQLite file
+with `uv run python -m tools.snapshot_d1` (writes `backups/`, gitignored), then replay
+future nights through the real app with `uv run python -m tools.simulate_teaching
+<snapshot> --nights 8 --slip 0.1 [--show]`. Run the simulator before deploying any
+scheduler or teaching change: the September rollout passed every unit test and still
+stalled both kids. See LEARNING.md "Checking a change against real data".
+
 ## Gotchas
 
 - Problems are regenerated deterministically from (skill, level, seed) at grading time. If you change a generator while the app is running, restart it (locally) or redeploy (Workers) before a kid answers an in-flight question, or the regenerated problem won't match what was shown.

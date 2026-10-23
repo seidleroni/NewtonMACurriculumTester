@@ -498,7 +498,7 @@ def advance(snapshot: dict, progress: dict, correct: bool, raw: str | None = Non
     if snapshot.get("single_try") or (p.get("twin") and not snapshot["recovery"]):
         # A review shows the answer and moves on; teaching happens in its own block.
         p["outcome"] = "missed"
-        p["message"] = f"The answer is {show(current['answer'])}. {current['feedback']}"
+        p["message"] = f"The answer is {show(current['answer'])}."
     elif snapshot.get("twin") and current.get("assess") and not p.get("twin"):
         # One slip earns a second problem of the same kind, not a lesson.
         p.update(steps=[copy.deepcopy(snapshot["twin"])], index=0, misses=0, twin=True,

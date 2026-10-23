@@ -250,7 +250,9 @@ def page_context(activity: dict, kid: dict, skill, info: dict, empty: bool = Fal
     return dict(
         kid=kid, skill=skill, activity=activity, snapshot=snapshot, progress=progress,
         current=current, empty=empty,
-        grid=grid(table, progress, current) if table and not progress.get("twin") else None,
+        # The retry problem is a plain whole problem; the table returns with a lesson.
+        grid=grid(table, progress, current) if table and (
+            progress["recovery"] or not progress.get("twin")) else None,
         stage=learning.STAGES[activity["mode"]],
         title=learning.TITLES.get(activity["component"], "Try it yourself"),
         remaining=max(0, info["budget"] - info["used"]),

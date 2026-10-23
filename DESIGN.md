@@ -255,13 +255,28 @@ Each skill sits in a **box 1–5** with review intervals in days:
 
 ### 7.2 Introducing new skills (the "learning edge")
 Each grade has an **ordered skill sequence** (roughly standard order + prerequisites). The
-kid starts with the first 1–2 skills *introduced* and the rest *locked*. A new skill is
-introduced (and triggers its **lesson card**) when the kid's current focus skill reaches
-`level ≥ 2` / `score ≥ 0.5` AND the kid has `< 4` active-unmastered skills (so we never pile
-on). Prereqs gate introduction (e.g. multiplication facts before two-step word problems).
+kid starts with the first 1–2 skills *introduced* and the rest *locked*. At most **3**
+unmastered skills are in play at once, and at most one new skill unlocks per set.
+
+Since October 2026 each Common Core **domain is a lane**: a lane's next skill (in sequence
+order) unlocks when that lane's unmastered skills (at most 2) are off their entry floor
+(`level ≥ 2` or mastered). A stuck skill blocks only its own lane, so clocks, shapes or
+fractions can still arrive while multi-digit addition is being taught. Among ready lanes
+the least loaded wins, then sequence order. Cross-lane dependencies are listed in
+`LANE_PREREQS` (`engine/base.py`) — e.g. money problems need 2.NBT.B.5, area formulas need
+4.NBT.B.5 — and must be introduced and off the floor first. No new skill unlocks on a
+night when more than 4 reviews are due (welcome back from a break with reviews first).
+
+**Mastery is sticky.** A mastered skill keeps its badge (and its place outside the cap of
+3) through one slip; it lapses only after 2 misses in its last 5 real answers. A skill
+re-banded to a higher `max_level` keeps a badge earned before. Blank and duplicate
+submissions never count as answers.
 
 ### 7.3 Composing one daily session (~12 problems, capped at the daily goal/time)
-For the kid's active pool:
+The set opens with a **review block**: up to 4 due reviews, most overdue first (skills
+never answered yet are not reviews), plus one unaided whole problem for each skill being
+taught, so its mastery keeps moving. With teaching on, a set holds at most one lesson; see
+LEARNING.md for the budget rules. For the kid's active pool:
 1. **Due reviews** — up to ~5, most-overdue and lowest-score first.
 2. **Focus** — ~5 problems on the current learning-edge skill at its current level (adaptive:
    bumps a level mid-session after a short correct streak, eases after misses).

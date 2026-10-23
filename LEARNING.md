@@ -72,6 +72,58 @@ Deployed September 10, 2026 as Worker version `08378fe4-e0be-49fe-b12e-30ea7a697
 Validation: 1,135 tests passed; the final dashboard/template changes passed all 17
 teaching endpoint tests, and Ruff passed. Existing production answers were not modified.
 
+### October 2026: unstalling (snapshot version 3)
+
+Production data from September 9 to October 22 showed the first version stalling both
+children: one guided activity used the whole 12-answer budget (sets of one to two
+minutes), a single careless miss opened weeks of ingredient lessons on ideas they already
+knew, blank submits counted as misses, and the "Your work" list sat right above a
+near-identical prompt, so the most common wrong step was the previous step's answer.
+The rules below replace the corresponding ones above.
+
+- **When teaching starts.** Ingredient checks open on 2 misses in the last 5 real answers
+  at the current level (blank and duplicate submissions excluded), not on lifetime
+  accuracy. An unaided miss (whole problem or ingredient check) earns one fresh problem
+  of the same kind; only a missed retry opens a lesson. A whole problem never reopens
+  teaching on one miss.
+- **Shape of a set.** Reviews come first (see DESIGN.md §7.3). A set holds one lesson,
+  which may finish past the budget; further guided work is capped at half the budget and
+  otherwise becomes an unaided practice problem that shows the answer when missed. Slots
+  that do not fit what is left are deferred and listed for the parent ("Not reached").
+  Once tonight's lesson has happened, a missed check waits for the next set.
+- **Only the idea being learned is asked.** Ingredients already established at the band
+  appear filled in on a hundreds/tens/ones table; the current cell is highlighted.
+  Decomposition is asked as an equation, ones first ("341 = 300 + 40 + ___"), the form the
+  children already read reliably; "Add the new ten to the tens: 40 + 10" replaced "Put 10
+  with the tens". Typing the previous step's answer earns one free second look per
+  activity. The idea being learned is judged by its own steps, not by a slip elsewhere.
+- **Bands and spacing.** An idea established on bigger numbers is not re-probed on
+  smaller ones; a new band starts at faded when the band below is established.
+  Established ideas are reviewed after 7, 14, 30, then 60 days. The next word-problem
+  gate comes before a single due review.
+- **Parent view.** A health line flags overdue reviews, nights without a new skill, short
+  sets, lessons without an unaided answer, and blanks. A display-only card groups recent
+  mistakes (place name instead of value, one place off by one, copied answer, blank). The
+  history explains why each activity was chosen.
+
+Snapshots record `version`; activities created before this change keep their original
+flow and render with the old work list.
+
+### Checking a change against real data
+
+```powershell
+uv run python -m tools.snapshot_d1                    # copy production D1 -> backups/
+uv run python -m tools.simulate_teaching backups/d1-snapshot-YYYYMMDD.db --nights 8 --slip 0.1
+uv run python -m tools.simulate_teaching backups/d1-snapshot-YYYYMMDD.db --nights 1 --show
+uv run python -m tools.prompt_report backups/d1-snapshot-YYYYMMDD.db
+```
+
+The simulator drives the real routes on a copy and checks the invariants the September
+rollout broke (most overdue review served, sets of at least 8 answers, an unaided answer
+for every skill being taught). `tools/rebuild_state.py` proposes guarded `skill_state`
+corrections for skills whose most recent answers were blank; review its SQL before
+applying it with `npx wrangler d1 execute mathkids --remote --file ...`.
+
 ## Storage and migration
 
 `0002_learning.sql` adds four tables:
