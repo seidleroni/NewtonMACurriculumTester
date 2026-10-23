@@ -1,6 +1,6 @@
 """Plain-sentence health checks for the parent view, one per invariant.
 
-Each check reads stored rows and says something only when it is wrong, so an empty
+Each check reads stored rows and says something only when it needs a look, so an empty
 list means all is well. Time is measured in practice nights (days with a finished
 set), not calendar days, so a holiday is not mistaken for a stall. The September
 teaching rollout broke the first three for weeks before anyone looked; these are the
@@ -12,14 +12,14 @@ import json
 from datetime import date
 from statistics import median
 
-from mathkids import learning
+from mathkids import db, learning
 from mathkids.engine import REGISTRY
+from mathkids.mastery import is_retained
 
 REVIEW_NIGHTS = 4       # a due review waiting this many practice nights
 NEW_SKILL_NIGHTS = 10   # practice nights without a new skill while some are locked
 SHORT_SET = 8           # median answers per set below this
 LESSON_NIGHTS = 10      # nights a skill may be taught without one unaided answer
-BLANK_DAYS = 30
 
 
 async def kid_health(dbx, kid_id: int, sequence: list[str], today: int) -> list[str]:
@@ -56,7 +56,13 @@ async def kid_health(dbx, kid_id: int, sequence: list[str], today: int) -> list[
     if locked and introduced:
         since = nights_since(max(introduced) + 1)
         if since >= NEW_SKILL_NIGHTS:
-            warnings.append(f"No new skill in {since} practice nights.")
+            answers = await db.recent_answers(dbx, kid_id)
+            busy = [sid for sid, r in states.items() if sid in REGISTRY and not is_retained(
+                r["score"], r["level"], REGISTRY[sid].max_level, r["mastered_at"],
+                answers.get(sid, []))]
+            why = (f": {len(busy)} skills are in progress, the most at once, so the next "
+                   "arrives when one is mastered" if len(busy) >= 3 else "")
+            warnings.append(f"No new skill in {since} practice nights{why}.")
 
     recent = sessions[-5:]
     sizes = [s["used"] if s["used"] is not None else len(json.loads(s["plan"])) for s in recent]
@@ -72,9 +78,4 @@ async def kid_health(dbx, kid_id: int, sequence: list[str], today: int) -> list[
             warnings.append(f"{REGISTRY[sid].title} ({sid}) has had lessons but no problem "
                             f"solved without help in {len(window)} practice nights.")
 
-    blanks = sum(1 for a in attempts
-                 if a["day"] > today - BLANK_DAYS and not (a["given"] or "").strip())
-    if blanks:
-        warnings.append(f"{blanks} blank answer{'s' if blanks != 1 else ''} recorded in the "
-                        f"last {BLANK_DAYS} days (no longer possible since the fix).")
     return warnings

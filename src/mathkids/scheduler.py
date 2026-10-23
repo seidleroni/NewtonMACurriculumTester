@@ -115,6 +115,7 @@ def _off_the_floor(slot: Slot) -> bool:
 
 
 PER_DOMAIN = 2  # unmastered skills in play at once within one domain (lane)
+MAX_ON_FLOOR = 2  # skills still on their entry level at once: new skills arrive gently
 
 
 def next_to_introduce(
@@ -130,7 +131,8 @@ def next_to_introduce(
     With `domains` (skill -> Common Core domain), each domain is a lane in sequence
     order: a lane's next skill unlocks when that lane's unmastered skills are off the
     floor (at most PER_DOMAIN of them), so one hard area cannot block clocks or shapes
-    that do not depend on it. `prereqs` names cross-lane dependencies, which must be
+    that do not depend on it. At most MAX_ON_FLOOR skills may sit on their entry level
+    at once, so new skills still arrive one at a time. `prereqs` names cross-lane dependencies, which must be
     introduced and off the floor first. Among ready lanes the least loaded wins, then
     curriculum order."""
     introduced = set(slots)
@@ -146,6 +148,8 @@ def next_to_introduce(
             return None
         return locked[0]
     prereqs = prereqs or {}
+    if sum(1 for s in active_unmastered if not _off_the_floor(slots[s])) >= MAX_ON_FLOOR:
+        return None  # let a brand-new skill settle before the next one arrives
     candidates = []
     for lane in dict.fromkeys(domains[s] for s in locked):
         skill = next(s for s in locked if domains[s] == lane)

@@ -12,6 +12,10 @@ PATTERNS = {
         tip="Try at dinner: point at one digit and ask what it is worth. "
             "In 47, the 4 is worth 40, not \"ten\".",
     ),
+    "digit": dict(
+        title="Gave the digit instead of its value",
+        tip="Try at dinner: in 34, the 3 is in the tens place, so it is worth 30.",
+    ),
     "one_off": dict(
         title="One place off by one",
         tip="Try at dinner: after an answer, check it one place at a time out loud.",
@@ -31,16 +35,24 @@ def digits(text: str) -> str:
     return (text or "").replace(",", "").replace(" ", "")
 
 
-def classify(expected: str, given: str, ms: int, previous: str | None = None) -> str | None:
+PLACE_QUESTION = ("worth", "value", "___", "part")
+
+
+def classify(expected: str, given: str, ms: int, previous: str | None = None,
+             prompt: str = "") -> str | None:
     e, g = digits(expected), digits(given)
     if not g or 0 < ms < FAST_MS:
         return "blank"
-    if previous is not None and g == digits(previous) and g != e:
-        return "copy"
-    if e.isdigit() and g.isdigit() and len(e) >= 2:
+    about_place = any(word in prompt for word in PLACE_QUESTION) or not prompt
+    if e.isdigit() and g.isdigit() and len(e) >= 2 and about_place:
         nonzero = e.rstrip("0")
         if len(nonzero) == 1 and g == "1" + "0" * (len(e) - 1) and g != e:
             return "place_name"
+        if len(nonzero) == 1 and g == nonzero and g != e:
+            return "digit"
+    if previous is not None and g == digits(previous) and g != e:
+        return "copy"
+    if e.isdigit() and g.isdigit() and len(e) >= 2:
         if len(e) == len(g):
             diff = [(a, b) for a, b in zip(e, g) if a != b]
             if len(diff) == 1 and abs(int(diff[0][0]) - int(diff[0][1])) == 1:
@@ -55,12 +67,18 @@ def summarize(mistakes: list[dict]) -> dict:
     found: dict[str, list[dict]] = {}
     other = []
     for m in mistakes:
-        kind = classify(m["expected"], m["given"], m["ms"], m.get("previous"))
+        kind = classify(m["expected"], m["given"], m["ms"], m.get("previous"), m["prompt"])
         if kind:
             found.setdefault(kind, []).append(m)
         else:
             other.append(m)
-    patterns = [dict(PATTERNS[k], kind=k, count=len(v), examples=v[-3:])
+
+    def distinct(rows):
+        unique = {(r["prompt"], r["given"]): r for r in rows}
+        return list(unique.values())
+
+    other = distinct(other)
+    patterns = [dict(PATTERNS[k], kind=k, count=len(v), examples=distinct(v)[-3:])
                 for k, v in sorted(found.items(), key=lambda kv: -len(kv[1]))]
     return dict(patterns=patterns, other=other[-3:], total=len(mistakes))
 

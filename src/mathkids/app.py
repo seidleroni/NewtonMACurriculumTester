@@ -619,7 +619,7 @@ async def parent(request: Request):
                 recent = [c for c, _ in answers.get(sid, [])][-10:]
                 if len(recent) >= 3:
                     acc = sum(recent) / len(recent)
-                    if acc < worst and acc < 1:
+                    if acc < worst and acc < 0.8:
                         worst, trouble = acc, (REGISTRY[sid].title, round(acc * 100), sid)
 
             kids_data.append(

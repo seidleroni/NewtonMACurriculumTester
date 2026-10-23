@@ -269,7 +269,8 @@ def test_review_is_one_unaided_problem_even_while_teaching(app_db):
     snap = json.loads(a["snapshot"])
     assert a["component"].startswith("whole:") and snap["single_try"] and not snap["recovery"]
     page = c.post("/kid/1/step", data=step_data(a, right(a) + 1))
-    assert "The answer is" in page.text and "come back another day" in page.text
+    snap_prompt = snap["steps"][0]["prompt"]
+    assert f"{snap_prompt[:-1]}{right(a):,}." in page.text and "come back another day" in page.text
     assert run(d.first("SELECT outcome FROM practice_activity WHERE id=?", a["id"]))["outcome"] == "missed"
     c.get("/kid/1/play")
     assert current(d)[1]["component"] == "decompose"  # teaching follows in its own slot
@@ -365,9 +366,11 @@ def test_a_stuck_lane_does_not_block_other_domains():
     slots = lane_slots(N1=1)  # stuck on its floor, like 4.NBT.B.4 in October
     assert next_to_introduce(slots, seq) is None  # the old single-lane gate
     assert next_to_introduce(slots, seq, domains=domains) == "F1"
-    slots = lane_slots(N1=1, F1=1)
+    slots = lane_slots(N1=1, F1=1)  # two skills still on their entry level: wait
+    assert next_to_introduce(slots, seq, domains=domains) is None
+    slots = lane_slots(N1=1, F1=2)
     assert next_to_introduce(slots, seq, domains=domains) == "M1"
-    slots = lane_slots(N1=1, F1=1, M1=1)  # the global cap still holds
+    slots = lane_slots(N1=2, F1=2, M1=2)  # the global cap still holds
     assert next_to_introduce(slots, seq, domains=domains) is None
 
 
@@ -529,3 +532,52 @@ def test_lesson_after_a_missed_retry_keeps_its_table(app_db):
     page = c.post("/kid/1/step", data=step_data(a, right(a) + 1))
     assert "find the part to practice" in page.text.replace("&#39;", "'")
     assert 'class="placegrid"' in page.text
+
+
+
+def test_subtraction_tables_never_show_cells_after_a_question():
+    for seed in range(40):
+        task = l.task("sub_ones", 2, "guided", seed, frozenset({"decompose", "sub_parts"}))
+        assert not any(g[0] == "sum" for g in task["table"]["given"])
+        task = l.task("sub_zero", 3, "faded", seed, frozenset({"sub_parts"}))
+        assert not any(g[0] == "sum" for g in task["table"]["given"])
+
+
+def test_short_numbers_leave_bigger_places_empty():
+    steps = l.arithmetic_steps([341, 25], "+", "add_parts", "faded")
+    _, table = l.prefill([341, 25], "+", steps, "add_parts")
+    assert [1, 100, 0] not in table["given"]
+
+
+def test_typing_the_digit_is_a_mistake_not_a_copy():
+    task = l.task("decompose", 2, "guided", 0)
+    task["steps"] = [l.step("33 = 30 + ___. What is missing?", 3, "decompose", "", cell=(0, 1)),
+                     l.step("33 = ___ + 3. What is missing?", 30, "decompose", "", cell=(0, 10))]
+    p = l.initial_progress(task)
+    p = l.advance(task, p, True, "3")
+    p = l.advance(task, p, False, "3")
+    assert not p.get("copy_retry") and not p["clean"]
+
+
+def test_missed_answer_names_its_own_problem():
+    assert l.answer_line(dict(prompt="27 + 34 = ?", answer=61)) == "27 + 34 = 61."
+    assert l.answer_line(dict(prompt="How many are left?", answer=4)).endswith("The answer is 4.")
+
+
+def test_story_steps_ask_one_question():
+    for comp in [c for c in l.TITLES if c.startswith("story_")]:
+        for seed in range(20):
+            for s in w.task(comp, 1, "guided", seed)["steps"]:
+                assert s["prompt"].count("?") <= 1, s["prompt"]
+            assert " 1 " + "buttons" not in w.task(comp, 1, "independent", seed)["prompt"]
+
+
+def test_large_numbers_are_shown_with_commas():
+    import re
+
+    for comp in ("add_parts", "add_multi", "sub_multi", "sub_zero", "decompose"):
+        for seed in range(15):
+            for mode in ("guided", "faded", "independent"):
+                task = l.task(comp, 5, mode, seed)
+                for text in [task["prompt"]] + [st["prompt"] for st in task["steps"]]:
+                    assert not re.search(r"\d{4,}", text), text

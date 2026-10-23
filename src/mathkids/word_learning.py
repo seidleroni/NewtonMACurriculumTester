@@ -14,6 +14,15 @@ NAMES = ["Tara", "Finn", "Maya", "Leo", "Ava", "Omar", "Nina", "Ravi", "Lucy", "
 THINGS = ["buttons", "stickers", "marbles", "shells", "crayons", "beads", "acorns", "cards"]
 
 
+def count(n: int, things: str) -> str:
+    return f"{n} {things[:-1] if n == 1 else things}"
+
+
+def statement(prompt: str) -> str:
+    """The story without its question, so a guided step asks one question only."""
+    return prompt[:prompt.rindex(". ") + 1] if ". " in prompt else prompt
+
+
 def gates(level):
     result = [(c, 1) for c in ("story_take", "story_hidden", "story_link")]
     ceiling = 1 if level == 1 else 8
@@ -66,40 +75,41 @@ def task(component, band, mode, seed, with_twin=True):
     diagram = f"Whole: {total} | Known part: {change} | Missing part: ?"
     answer = start
     if component == "story_take":
-        prompt = (f"{name} has {total} {things} and gives away {change}. "
+        prompt = (f"{name} has {count(total, things)} and gives away {change}. "
                   f"How many {things} are left?")
         diagram = f"Start: {total} → Give away: {change} → Left: ?"
     elif component == "story_hidden":
-        prompt = (f"There are {total} {things} altogether. You can see {change}. "
+        prompt = (f"There are {count(total, things)} altogether. You can see {change}. "
                   f"How many {things} are covered?")
     elif component == "story_link":
         prompt = f"___ + {change} = {total}. What number is missing?"
     elif component == "story_calculate":
         prompt = f"{total} - {change} = ?"
     elif component == "story_start":
-        prompt = (f"{name} got {change} more {things} and then had {total} {things}. "
+        prompt = (f"{name} got {change} more {things[:-1] if change == 1 else things} "
+                  f"and then had {count(total, things)}. "
                   f"How many {things} did {name} start with?")
         diagram = f"Start: ? → Added: {change} → Total: {total}"
     elif component == "story_start_take":
-        prompt = (f"{name} gave away {change} {things} and had {start} left. "
+        prompt = (f"{name} gave away {count(change, things)} and had {start} left. "
                   f"How many {things} did {name} start with?")
         answer = total
         diagram = f"Start: ? → Gave away: {change} → Left: {start}"
     elif component == "story_change":
-        prompt = (f"{name} had {change} {things} and got some more. Now there are {total}. "
+        prompt = (f"{name} had {count(change, things)} and got some more. Now there are {total}. "
                   f"How many {things} were added?")
         diagram = f"Start: {change} → Added: ? → Total: {total}"
     else:
-        prompt = (f"{name} had {total} {things} and gave some away. Now there are {change}. "
+        prompt = (f"{name} had {count(total, things)} and gave some away. Now there are {change}. "
                   f"How many {things} were given away?")
         diagram = f"Start: {total} → Gave away: ? → Left: {change}"
     steps = []
     table = None
     if support:
         if mode == "guided" and component != "story_calculate":
-            steps.append(l.step(f"{prompt} Which number tells us the whole, before it is split "
-                                "into the two parts?" if component != "story_start_take" else
-                                f"{prompt} How many {things} are left?",
+            steps.append(l.step(f"{statement(prompt)} Which number tells us the whole, before "
+                                "it is split into the two parts?" if component != "story_start_take"
+                                else f"{statement(prompt)} How many {things} are left?",
                                 total if component != "story_start_take" else start,
                                 component, feedback if component != "story_start_take" else
                                 f"The story says {start} {things} are left."))

@@ -64,6 +64,7 @@ REASONS = {
     "practice": "Practice: solving it without help",
     "recent_misses": "Checking a part, after 2 misses in the last 5 answers",
     "two_misses": "Learning the parts, after a missed problem and its retry",
+    "parts_ready": "Whole problem: the parts it needs are confirmed",
     "spaced_review": "Spaced review of an idea learned earlier",
     "story_next": "Next word-problem step",
     "story_review": "Spaced review of an earlier word-problem step",
@@ -156,6 +157,8 @@ async def get_activity(dbx, session: dict, item: dict, skill, problem):
         component, band = target if target else (whole, band)
         reason = "story_review" if target and known.get(target, {}).get(
             "stage") == "established" else "story_next" if target else reason
+    if component == whole and reason in {"two_misses", "recent_misses"}:
+        reason = "parts_ready"
     state = effective(known, component, band)
     mode = state["stage"]
     if component == whole:
@@ -176,8 +179,10 @@ async def get_activity(dbx, session: dict, item: dict, skill, problem):
                 component, band, mode = whole, requirements_band, "practice"
                 reason = "lesson_done"
         if mode != "practice":
-            established = frozenset(c for c, _ in known
-                                    if effective(known, c, band)["stage"] == "established")
+            established = frozenset(
+                c for c, _ in known if not c.startswith(("story_", "whole:")) and (
+                    effective(known, c, band)["stage"] == "established"
+                    or known.get((c, band - 1), {}).get("stage") == "established"))
             snapshot = learning.task(component, band, mode, item["seed"], established)
     spent = await teaching_used(dbx, sid)
     if mode in {"guided", "faded"} and spent > 0 and \
@@ -419,7 +424,8 @@ async def parent_progress(dbx, kid_id: int) -> list[dict]:
 
     rows = list((await states(dbx, kid_id)).values())
     return [dict(title=learning.TITLES.get(r["component"],
-                    REGISTRY[r["component"].split(":")[1]].title
+                    f"{REGISTRY[r['component'].split(':')[1]].title}, level "
+                    f"{r['component'].split(':')[2]}"
                     if r["component"].startswith("whole:") else r["component"]),
                  band=r["band"],
                  range_label=(

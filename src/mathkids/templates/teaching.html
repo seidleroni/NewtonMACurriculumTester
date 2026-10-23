@@ -4,7 +4,9 @@
   <span>Math practice</span></div>
 <div class="skilltag">{{ title }}</div>
 <div class="problem teaching">
+  {% if not (progress.twin and not progress.recovery) %}
   <h2>{{ snapshot.recovery.prompt if progress.recovery and snapshot.recovery else snapshot.prompt }}</h2>
+  {% endif %}
   {% if snapshot.columns %}
     <p class="note">Written in columns, the same places line up. Start with the ones.
       An exchange moves one group to the next place and keeps the total the same.</p>
