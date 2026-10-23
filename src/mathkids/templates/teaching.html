@@ -73,6 +73,7 @@
   {% else %}
     <p class="note">{% if progress.outcome == 'independent' %}You solved it yourself!
       {% elif progress.outcome == 'practiced' %}You practiced the steps!
+      {% elif progress.outcome == 'retried' %}You got it on the second try!
       {% elif progress.outcome == 'missed' %}Good try! This one will come back another day.
       {% else %}Good work practicing a new idea.{% endif %}</p>
     <a class="primary btn" id="next" href="/kid/{{ kid.id }}/play">Next →</a>

@@ -97,7 +97,9 @@ def compose_blocks(
         key=lambda s: (slots[s].due_at, slots[s].score, s),
     )
     block = due[:MAX_REVIEWS]
-    block += [s for s in dict.fromkeys(checks) if s in plan and s not in block]
+    # A skill never answered yet starts with its lesson, not a one-try check.
+    block += [s for s in dict.fromkeys(checks)
+              if s in plan and s not in block and slots[s].attempts > 0]
     block = block[:MAX_BLOCK]
     rest = list(plan)
     for s in block:

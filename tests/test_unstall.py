@@ -581,3 +581,22 @@ def test_large_numbers_are_shown_with_commas():
                 task = l.task(comp, 5, mode, seed)
                 for text in [task["prompt"]] + [st["prompt"] for st in task["steps"]]:
                     assert not re.search(r"\d{4,}", text), text
+
+
+
+def test_new_teaching_skill_starts_with_its_lesson_not_a_check():
+    seq = ["A", "B"]
+    slots = {"A": slot("A", 50, mastered=True), "B": slot("B", 100, attempts=0)}
+    reviews, _ = compose_blocks(slots, seq, 100, 12, checks=("B",))
+    assert "B" not in reviews
+
+
+def test_faded_start_survives_an_abandoned_first_activity():
+    known = {("match", 2): dict(l.empty_state("match", 2), stage="established"),
+             ("match", 3): l.empty_state("match", 3)}  # row inserted, nothing answered
+    assert teaching.effective(known, "match", 3)["stage"] == "faded"
+
+
+def test_impossible_operand_requests_fail_fast():
+    with pytest.raises(ValueError):
+        l.operands("sub_zero", 2, random.Random(1))

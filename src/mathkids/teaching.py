@@ -47,7 +47,7 @@ def effective(known: dict, component: str, band: int) -> dict:
            for (c, b), s in known.items()):
         return dict(state, stage="established")
     below = known.get((component, band - 1))
-    if (component, band) not in known and below and below["stage"] == "established":
+    if not state["evidence"] and below and below["stage"] == "established":
         return dict(state, stage="faded")
     return state
 
@@ -411,9 +411,10 @@ async def summary(dbx, session_id: int) -> dict | None:
         session_id,
     )
     practice = await dbx.first(
-        """SELECT COUNT(*) AS completed, COALESCE(SUM(outcome NOT IN ('independent','missed')),0) AS guided
+        """SELECT COUNT(*) AS completed, COALESCE(SUM(outcome NOT IN ('independent','missed','retried')),0) AS guided
            , COALESCE(SUM(outcome='independent' AND component NOT LIKE 'whole:%'),0) AS checks
            FROM practice_activity WHERE session_id=? AND outcome IS NOT NULL""", session_id,
+
     )
     return dict(independent=assessment["total"], correct=assessment["correct"],
                 guided=practice["guided"], checks=practice["checks"])

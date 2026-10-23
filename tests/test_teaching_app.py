@@ -154,7 +154,8 @@ def test_one_slip_gets_a_retry_not_a_lesson(practice):
     page = c.post("/kid/1/step", data=data_for(first, True))
     assert "one more like it" in page.text
     page = c.post("/kid/1/step", data=data_for(active(d)))
-    assert "practiced" in page.text.lower()
+    assert "second try" in page.text.lower()
+    assert run(d.first("SELECT outcome FROM practice_activity"))["outcome"] == "retried"
     rows = run(d.all("SELECT correct, prompt FROM attempt ORDER BY id"))
     assert [r["correct"] for r in rows] == [0, 1]
     assert rows[0]["prompt"] != rows[1]["prompt"]
@@ -307,6 +308,7 @@ def test_budget_finishes_current_activity_then_ends_set(practice):
     run(d.run("UPDATE learning_session SET budget=1"))
     c.get("/kid/1/play")
     c.post("/kid/1/step", data=data_for(active(d), True))
+    c.post("/kid/1/step", data=data_for(active(d), True))  # the retry too: a lesson follows
     for _ in range(20):
         a = active(d)
         if not a:

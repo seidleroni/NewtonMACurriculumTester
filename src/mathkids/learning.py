@@ -206,7 +206,7 @@ def operands(component: str, band: int, rng: random.Random) -> tuple[list[int], 
     width = 2 if component in {"add_ones", "sub_ones", "add_many"} else max(3, band)
     # Teach a new exchange on small numbers before extending to the requested band.
     width = min(width, band)
-    while True:
+    for _ in range(100_000):
         a = rng.randint(10 ** (width - 1), 10 ** width - 1)
         b = rng.randint(10, a if component.startswith("sub") else 10 ** width - 1)
         if component.startswith("sub"):
@@ -251,6 +251,7 @@ def operands(component: str, band: int, rng: random.Random) -> tuple[list[int], 
                     # Three, then four addends are separately exposed by examples.
                     nums = [rng.randint(10, 24) for _ in range(rng.choice([3, 4]))]
                 return nums, "+"
+    raise ValueError(f"no {component} problem exists at band {band}")
 
 
 def singular(place: str) -> str:
@@ -506,9 +507,9 @@ def advance(snapshot: dict, progress: dict, correct: bool, raw: str | None = Non
         p["misses"] = 0
         p["message"] = "Yes! Keep your parts together as you work."
         if p["index"] == len(p["steps"]):
-            p["outcome"] = "independent" if snapshot["mode"] not in {
-                "guided", "faded"
-            } and p["clean"] else "practiced"
+            unaided = snapshot["mode"] not in {"guided", "faded"} and not p["recovery"]
+            p["outcome"] = ("independent" if unaided and p["clean"]
+                            else "retried" if unaided and p.get("twin") else "practiced")
         return p
     p["clean"] = False
     p["misses"] += 1
