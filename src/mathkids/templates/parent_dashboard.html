@@ -5,6 +5,17 @@
 <section class="kidblock">
   <h2>{{ d.kid.emoji }} {{ d.kid.name }} — Grade {{ d.kid.grade }}</h2>
   <p><a href="/parent/kid/{{ d.kid.id }}/history">View questions and answers by day →</a></p>
+  {% if d.health %}<div class="health warn"><b>Needs a look:</b>
+    <ul>{% for w in d.health %}<li>{{ w }}</li>{% endfor %}</ul></div>
+  {% else %}<p class="health ok">✓ Practice is on track: reviews served, sets full length, new skills arriving.</p>{% endif %}
+  {% if d.mistakes.total %}<details class="mistakes"><summary>What the last 30 days' mistakes have in common
+    ({{ d.mistakes.total }} wrong answers)</summary>
+    {% for p in d.mistakes.patterns %}<div class="pattern"><p><b>{{ p.title }}</b> · {{ p.count }}×</p>
+      <ul>{% for e in p.examples %}<li>{{ e.prompt }} → <b>{{ e.given or '(blank)' }}</b> (expected {{ e.expected }})</li>{% endfor %}</ul>
+      <p class="history-note">{{ p.tip }}</p></div>{% endfor %}
+    {% if d.mistakes.other %}<div class="pattern"><p><b>Other mistakes</b></p>
+      <ul>{% for e in d.mistakes.other %}<li>{{ e.prompt }} → <b>{{ e.given }}</b> (expected {{ e.expected }})</li>{% endfor %}</ul></div>{% endif %}
+  </details>{% endif %}
   {% if d.learning %}
   <ul>{% for item in d.learning %}
     <li>{{ item.title }} ({{ item.range_label }}): {{ item.stage }}</li>

@@ -33,6 +33,25 @@ async def states(dbx, kid_id: int) -> dict:
     return {(row["component"], row["band"]): row for row in rows}
 
 
+def effective(known: dict, component: str, band: int) -> dict:
+    """A component's state at `band`, borrowing from neighbouring bands of the same idea.
+
+    An idea established on bigger numbers is not re-checked on smaller ones, and a new,
+    bigger band starts at faded when the band below is established. Word-problem bands
+    are number tiers with their own gates, and whole problems are per level: neither
+    borrows."""
+    state = known.get((component, band)) or learning.empty_state(component, band)
+    if component.startswith(("story_", "whole:")) or state["stage"] == "established":
+        return state
+    if any(c == component and b > band and s["stage"] == "established"
+           for (c, b), s in known.items()):
+        return dict(state, stage="established")
+    below = known.get((component, band - 1))
+    if (component, band) not in known and below and below["stage"] == "established":
+        return dict(state, stage="faded")
+    return state
+
+
 def ready(state: dict) -> bool:
     evidence = [e for e in state["evidence"] if e["mode"] not in {"guided", "faded"}][-3:]
     return state["stage"] == "established" or (
@@ -40,6 +59,17 @@ def ready(state: dict) -> bool:
     )
 
 
+REASONS = {
+    "review": "Review: due for a check without help",
+    "practice": "Practice: solving it without help",
+    "recent_misses": "Checking a part, after 2 misses in the last 5 answers",
+    "two_misses": "Learning the parts, after a missed problem and its retry",
+    "spaced_review": "Spaced review of an idea learned earlier",
+    "story_next": "Next word-problem step",
+    "story_review": "Spaced review of an earlier word-problem step",
+    "same_lesson": "More practice with tonight's lesson",
+    "lesson_done": "Practice without help: tonight's lesson already happened",
+}
 CHECK_MISSES = 2  # misses among the last CHECK_WINDOW answers at a level that open teaching
 CHECK_WINDOW = 5
 
@@ -104,25 +134,29 @@ async def get_activity(dbx, session: dict, item: dict, skill, problem):
     whole_state = known.get((whole, band), learning.empty_state(whole, band))
     review = bool(item.get("review"))
     component = whole
+    # Why this problem: one of REASONS, shown to the parent under the activity.
+    reason = "review" if review else "practice"
     if review:
         pass  # a review is one unaided whole problem, whatever is being taught
     elif whole_state["stage"] == "guided" or (
         await needs_check(dbx, kid_id, skill.id, item["level"]) and not ready(whole_state)
     ):
-        component = next((c for c in path if not ready(
-            known.get((c, band), learning.empty_state(c, band))
-        )), whole)
+        reason = "two_misses" if whole_state["stage"] == "guided" else "recent_misses"
+        component = next((c for c in path if not ready(effective(known, c, band))), whole)
     elif ready(whole_state):
         due = [c for c in path if (c, band) in known
                and known[(c, band)]["stage"] == "established"
                and known[(c, band)]["due_at"] <= db.today_ordinal()]
         if due:
             component = min(due, key=lambda c: known[(c, band)]["due_at"])
+            reason = "spaced_review"
     if skill.id == "2.OA.A.1" and not review:
         from mathkids.word_learning import select
         target = select(known, item["level"], db.today_ordinal())
         component, band = target if target else (whole, band)
-    state = known.get((component, band), learning.empty_state(component, band))
+        reason = "story_review" if target and known.get(target, {}).get(
+            "stage") == "established" else "story_next" if target else reason
+    state = effective(known, component, band)
     mode = state["stage"]
     if component == whole:
         mode = "independent" if mode == "guided" else mode
@@ -135,14 +169,15 @@ async def get_activity(dbx, session: dict, item: dict, skill, problem):
             if taught in path and int(band_text) == band:
                 # Practice the idea already taught in this set instead of piling on another.
                 component = taught
-                state = known.get((component, band), learning.empty_state(component, band))
-                mode = state["stage"]
+                mode = effective(known, component, band)["stage"]
+                reason = "same_lesson"
             elif mode in {"guided", "faded"}:
                 # Another skill's idea is today's lesson: practice this one unaided.
                 component, band, mode = whole, requirements_band, "practice"
+                reason = "lesson_done"
         if mode != "practice":
-            established = frozenset(c for (c, b), s in known.items()
-                                    if b == band and s["stage"] == "established")
+            established = frozenset(c for c, _ in known
+                                    if effective(known, c, band)["stage"] == "established")
             snapshot = learning.task(component, band, mode, item["seed"], established)
     spent = await teaching_used(dbx, sid)
     if mode in {"guided", "faded"} and spent > 0 and \
@@ -150,6 +185,7 @@ async def get_activity(dbx, session: dict, item: dict, skill, problem):
         # One lesson per set may run past the budget (it is bounded); further teaching
         # stays within about half the set, so reviews and other practice still happen.
         component, band, mode = whole, requirements_band, "practice"
+        reason = "lesson_done"
     if mode == "practice":
         snapshot = whole_snapshot(skill, item, problem, band, "independent", path, True)
         mode = snapshot["mode"]
@@ -160,6 +196,7 @@ async def get_activity(dbx, session: dict, item: dict, skill, problem):
     fits = len(snapshot["steps"]) <= info["budget"] - info["used"]
     if info["used"] > 0 and not first_lesson and not fits:
         return {"defer": True}
+    snapshot["reason"] = reason
     await dbx.run(
         "INSERT OR IGNORE INTO learning_state (kid_id,component,band) VALUES (?,?,?)",
         kid_id, component, band,

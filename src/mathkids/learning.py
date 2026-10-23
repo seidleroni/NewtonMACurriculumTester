@@ -147,9 +147,26 @@ def evidence_update(state: dict, correct: bool, day: int, seed: int, mode: str, 
             state["stage"] = (
                 "established" if len({e["day"] for e in recent}) >= 2 else "independent"
             )
-    state["due_at"] = day + (7 if state["stage"] == "established" else 1)
+    state["due_at"] = day + (review_interval(state["evidence"])
+                             if state["stage"] == "established" else 1)
     state["revision"] += 1
     return state
+
+
+REVIEW_INTERVALS = (7, 14, 30, 60)  # days between reviews of an established idea
+
+
+def review_interval(evidence: list[dict]) -> int:
+    """Each further unaided success after the three that established an idea pushes
+    its next review further out, so confirmed ideas stop crowding the frontier."""
+    run = 0
+    for e in reversed(evidence):
+        if e["mode"] in {"guided", "faded"}:
+            continue
+        if not e["correct"]:
+            break
+        run += 1
+    return REVIEW_INTERVALS[min(max(run - 3, 0), len(REVIEW_INTERVALS) - 1)]
 
 
 def step(prompt: str, answer: int, component: str, feedback: str, *, choices=None,

@@ -126,6 +126,29 @@ SEQUENCES: dict[int, list[str]] = {
 }
 
 
+# New skills unlock per Common Core domain (scheduler.next_to_introduce lanes), so these
+# are the only dependencies that cross domains: each skill needs the listed skills
+# introduced and off their entry floor first. Within a domain, SEQUENCES order applies.
+LANE_PREREQS: dict[str, tuple[str, ...]] = {
+    # Grade 2: measurement and data problems use the arithmetic they ask for.
+    "2.MD.C.7": ("2.NBT.A.2",),               # telling time to 5 minutes: skip count by 5s
+    "2.MD.C.8": ("2.NBT.B.5",),               # money problems: add within 100
+    "2.MD.B.5": ("2.NBT.B.5", "2.OA.A.1"),    # length word problems within 100
+    "2.MD.B.6": ("2.NBT.B.5",),               # sums and differences on a number line
+    "2.MD.D.10": ("2.OA.A.1",),               # put-together / take-apart with graphs
+    # Grade 3
+    "3.MD.A.2": ("3.OA.A.3",),                # liquid volume problems with x and /
+    "3.MD.B.3": ("3.OA.A.3",),                # scaled graphs
+    "3.MD.C.7": ("3.OA.C.7",),                # area by multiplying
+    "3.MD.D.8": ("3.NBT.A.2",),               # perimeter: add within 1000
+    # Grade 4
+    "4.NF.B.4": ("4.OA.A.1",),                # fraction times a whole number
+    "4.MD.A.2": ("4.NBT.B.4",),               # money and measurement word problems
+    "4.MD.A.3": ("4.NBT.B.5",),               # area and perimeter formulas
+    "4.MD.B.4": ("4.NF.B.3",),                # line plots of fractions: add and subtract
+}
+
+
 REGISTRY: dict[str, Skill] = {}
 
 

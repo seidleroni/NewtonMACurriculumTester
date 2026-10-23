@@ -35,6 +35,7 @@
       <p>{{ 'Independent check' if entry.mode in ['probe', 'independent', 'established'] else 'Step-by-step practice' }}
         · {{ {'independent': 'Solved independently', 'practiced': 'Practiced with guidance',
               'revisit': 'Needs more practice', 'missed': 'Missed in review (answer shown)'}.get(entry.outcome, 'In progress') }}</p>
+      {% if entry.reason %}<p class="history-note">Why this problem: {{ entry.reason }}</p>{% endif %}
       <details open><summary>Questions and answers in this activity</summary>
         <ol>{% for s in entry.steps %}<li>
           <p>{{ s.prompt }}</p>
@@ -49,6 +50,7 @@
     </li>
   {% endfor %}
   </ol>
+  {% if group.not_reached %}<p class="history-note">Not reached in this set: {{ group.not_reached | join(', ') }}</p>{% endif %}
 </section>
 {% else %}<p>No practice recorded on this day.</p>{% endfor %}
 {% endblock %}

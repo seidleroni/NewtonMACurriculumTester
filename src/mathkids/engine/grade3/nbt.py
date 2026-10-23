@@ -46,7 +46,7 @@ class RoundTo10Or100(Skill):
         return Problem(
             skill_id=self.id,
             level=level,
-            prompt=f"Round {n} to the nearest {place_word}. = ?",
+            prompt=f"Round {n} to the nearest {place_word}.",
             answer=IntegerAnswer(ans),
             payload={"n": n, "place": place, "place_word": place_word},
         )

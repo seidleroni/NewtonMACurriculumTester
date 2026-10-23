@@ -5,6 +5,24 @@ import json
 from collections import Counter
 from datetime import date
 
+from mathkids.engine import REGISTRY
+from mathkids.teaching import REASONS
+
+
+def not_reached(session: dict | None) -> list[str]:
+    """Plan items a finished set skipped (deferred) or never got to, by skill title.
+    Reviews are marked, since an unreached review stays due."""
+    if not session or not session["ended_at"]:
+        return []
+    plan = json.loads(session["plan"])
+    skipped = [p for i, p in enumerate(plan) if p.get("deferred") or i >= session["answered"]]
+    titles = []
+    for p in skipped:
+        title = REGISTRY[p["skill"]].title + (" (review)" if p.get("review") else "")
+        if title not in titles:
+            titles.append(title)
+    return titles
+
 
 async def daily_history(dbx, kid_id: int, selected: str | None) -> dict:
     days = await dbx.all(
@@ -43,7 +61,8 @@ async def daily_history(dbx, kid_id: int, selected: str | None) -> dict:
         if aid not in activities:
             snap = json.loads(r["snapshot"])
             entry = dict(kind="activity", prompt=snap["prompt"], steps=[], time=r["created_at"],
-                         outcome=r["outcome"], mode=r["activity_mode"])
+                         outcome=r["outcome"], mode=r["activity_mode"],
+                         reason=REASONS.get(snap.get("reason"), ""))
             activities[aid] = entry
             groups.setdefault(r["session_id"], dict(session=None, entries=[]))["entries"].append(entry)
         activities[aid]["steps"].append(r)
@@ -56,6 +75,7 @@ async def daily_history(dbx, kid_id: int, selected: str | None) -> dict:
         groups.setdefault(a["session_id"], dict(session=None, entries=[]))["entries"].append(entry)
     for group in groups.values():
         group["entries"].sort(key=lambda e: e["time"])
+        group["not_reached"] = not_reached(group["session"])
     return dict(
         selected=date.fromordinal(chosen).isoformat(),
         days=[date.fromordinal(d).isoformat() for d in ordinals], groups=list(groups.values()),

@@ -9,6 +9,11 @@ TIERS = {1: (3, 10, False), 2: (11, 20, False), 3: (21, 30, False),
          7: (21, 50, True), 8: (51, 100, True)}
 
 
+# Story names and objects vary; worked examples keep their fixed, vetted wording.
+NAMES = ["Tara", "Finn", "Maya", "Leo", "Ava", "Omar", "Nina", "Ravi", "Lucy", "Theo"]
+THINGS = ["buttons", "stickers", "marbles", "shells", "crayons", "beads", "acorns", "cards"]
+
+
 def gates(level):
     result = [(c, 1) for c in ("story_take", "story_hidden", "story_link")]
     ceiling = 1 if level == 1 else 8
@@ -22,16 +27,23 @@ def gates(level):
     return result
 
 
+REVIEW_BACKLOG = 2  # due reviews that take precedence over the frontier
+
+
 def select(known, level, today):
+    """The frontier gate (first not yet established) comes first, so reviews of
+    established gates cannot use up every story slot; a review is served first only
+    when several are due. A later-day check is required before increasing either size
+    or concept (establishing needs evidence on two days)."""
     path = gates(level)
-    # A later-day check is required before increasing either size or concept.
-    for c, band in path:
-        state = known.get((c, band), {})
-        if state.get("stage") != "established":
-            return c, band
-        if state.get("due_at", 0) <= today:
-            return c, band
-    return None
+    frontier = next(((c, band) for c, band in path
+                     if known.get((c, band), {}).get("stage") != "established"), None)
+    due = sorted((known[(c, band)].get("due_at", 0), i, (c, band)) for i, (c, band) in enumerate(path)
+                 if (c, band) in known and known[(c, band)].get("stage") == "established"
+                 and known[(c, band)].get("due_at", 0) <= today)
+    if due and (frontier is None or len(due) >= REVIEW_BACKLOG):
+        return due[0][2]
+    return frontier
 
 
 def numbers(band, rng):
@@ -47,38 +59,39 @@ def task(component, band, mode, seed, with_twin=True):
     rng = random.Random(seed)
     total, change = numbers(band, rng)
     start = total - change
-    name = rng.choice(["Tara", "Finn", "Maya", "Leo"])
+    name = rng.choice(NAMES)
+    things = rng.choice(THINGS)
     support = mode in {"guided", "faded"}
     feedback = f"The whole is {total}. Its two parts are {change} and {start}."
     diagram = f"Whole: {total} | Known part: {change} | Missing part: ?"
     answer = start
     if component == "story_take":
-        prompt = (f"{name} has {total} buttons and gives away {change}. "
-                  "How many buttons are left?")
+        prompt = (f"{name} has {total} {things} and gives away {change}. "
+                  f"How many {things} are left?")
         diagram = f"Start: {total} → Give away: {change} → Left: ?"
     elif component == "story_hidden":
-        prompt = (f"There are {total} buttons altogether. You can see {change}. "
-                  "How many buttons are covered?")
+        prompt = (f"There are {total} {things} altogether. You can see {change}. "
+                  f"How many {things} are covered?")
     elif component == "story_link":
         prompt = f"___ + {change} = {total}. What number is missing?"
     elif component == "story_calculate":
         prompt = f"{total} - {change} = ?"
     elif component == "story_start":
-        prompt = (f"{name} got {change} more buttons and then had {total} buttons. "
-                  f"How many buttons did {name} start with?")
+        prompt = (f"{name} got {change} more {things} and then had {total} {things}. "
+                  f"How many {things} did {name} start with?")
         diagram = f"Start: ? → Added: {change} → Total: {total}"
     elif component == "story_start_take":
-        prompt = (f"{name} gave away {change} buttons and had {start} left. "
-                  f"How many buttons did {name} start with?")
+        prompt = (f"{name} gave away {change} {things} and had {start} left. "
+                  f"How many {things} did {name} start with?")
         answer = total
         diagram = f"Start: ? → Gave away: {change} → Left: {start}"
     elif component == "story_change":
-        prompt = (f"{name} had {change} buttons and got some more. Now there are {total}. "
-                  "How many buttons were added?")
+        prompt = (f"{name} had {change} {things} and got some more. Now there are {total}. "
+                  f"How many {things} were added?")
         diagram = f"Start: {change} → Added: ? → Total: {total}"
     else:
-        prompt = (f"{name} had {total} buttons and gave some away. Now there are {change}. "
-                  "How many buttons were given away?")
+        prompt = (f"{name} had {total} {things} and gave some away. Now there are {change}. "
+                  f"How many {things} were given away?")
         diagram = f"Start: {total} → Gave away: ? → Left: {change}"
     steps = []
     table = None
@@ -86,10 +99,10 @@ def task(component, band, mode, seed, with_twin=True):
         if mode == "guided" and component != "story_calculate":
             steps.append(l.step(f"{prompt} Which number tells us the whole, before it is split "
                                 "into the two parts?" if component != "story_start_take" else
-                                f"{prompt} How many buttons are left?",
+                                f"{prompt} How many {things} are left?",
                                 total if component != "story_start_take" else start,
                                 component, feedback if component != "story_start_take" else
-                                f"The story says {start} buttons are left."))
+                                f"The story says {start} {things} are left."))
         if component == "story_start_take":
             if band > 1:
                 worked, table = l.prefill([start, change], "+", l.arithmetic_steps(
@@ -98,9 +111,9 @@ def task(component, band, mode, seed, with_twin=True):
                 for s in steps:
                     s["component"] = component
             else:
-                steps.append(l.step(f"Put back the buttons given away: {start} + {change} = ?",
+                steps.append(l.step(f"Put back the {things} given away: {start} + {change} = ?",
                                     total, component,
-                                    "The starting amount includes both the buttons left and those given away."))
+                                    f"The starting amount includes both the {things} left and those given away."))
         elif component == "story_calculate" and band > 1:
             worked, table = l.prefill([total, change], "-", l.arithmetic_steps(
                 [total, change], "-", "sub_parts", "faded"), "sub_parts")
@@ -116,8 +129,8 @@ def task(component, band, mode, seed, with_twin=True):
         for s in steps:
             s["diagram"] = diagram
         if band == 1 and component in {"story_take", "story_hidden"}:
-            # Covered buttons stay hidden; the whole/visible counts supply the clue.
-            steps[0]["picture"] = dict(kind=component, total=total, change=change)
+            # Covered objects stay hidden; the whole/visible counts supply the clue.
+            steps[0]["picture"] = dict(kind=component, total=total, change=change, things=things)
     explanation = (
         "Example: Tara got 3 more buttons and now has 7. The 7 includes the buttons "
         "she started with and the 3 new ones. Remove those 3: 7 - 3 = 4. She started with 4."

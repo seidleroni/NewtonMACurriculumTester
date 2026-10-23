@@ -111,7 +111,7 @@ def test_word_problem_legacy_success_cannot_skip_small_number_checks(practice):
     assert "completed with help" not in page.text.lower()
     c.post("/kid/1/step", data=data_for(a, True))
     page = c.post("/kid/1/step", data=data_for(active(d), True))
-    assert "Crossed-out buttons" in page.text
+    assert "Crossed-out" in page.text
     assert "Button model" in page.text
     assert run(db.total_attempts(d, 1)) == 5
     while active(d) and active(d)["id"] == a["id"]:

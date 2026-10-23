@@ -13,7 +13,7 @@ from mathkids import learning as l
 from mathkids import word_learning as w
 from mathkids.app import app
 from mathkids.mastery import is_retained, recent_misses
-from mathkids.scheduler import Slot, compose_blocks, compose_session
+from mathkids.scheduler import Slot, compose_blocks, compose_session, next_to_introduce
 
 
 def run(coro):
@@ -311,7 +311,7 @@ def test_mastered_skill_with_one_slip_still_frees_a_new_skill(app_db):
     run(db.save_skill_state(d, 1, "4.OA.A.2", level=2, score=0.4))
     answer_rows(d, "4.OA.A.3.a", [1, 1, 1, 1, 0])
     c.post("/kid/1/start")
-    assert run(db.get_skill_state(d, 1, "4.OA.A.3")) is not None
+    assert len(run(db.get_skill_states(d, 1))) == 4
 
 
 def test_plan_starts_with_its_review_block(app_db):
@@ -351,3 +351,167 @@ def test_simulated_nights_keep_reviews_answers_and_lessons_in_balance(tmp_path, 
         assert not broken, broken
         assert all(r.responses >= 8 for r in records)
         assert all(r.reviews for r in records)
+
+
+# --- lanes ------------------------------------------------------------------------
+
+def lane_slots(**levels):
+    return {sid: Slot(sid, lv, 0.5, 2, 999, lv == 9, 5) for sid, lv in levels.items()}
+
+
+def test_a_stuck_lane_does_not_block_other_domains():
+    seq = ["N1", "N2", "F1", "M1"]
+    domains = {"N1": "nbt", "N2": "nbt", "F1": "nf", "M1": "md"}
+    slots = lane_slots(N1=1)  # stuck on its floor, like 4.NBT.B.4 in October
+    assert next_to_introduce(slots, seq) is None  # the old single-lane gate
+    assert next_to_introduce(slots, seq, domains=domains) == "F1"
+    slots = lane_slots(N1=1, F1=1)
+    assert next_to_introduce(slots, seq, domains=domains) == "M1"
+    slots = lane_slots(N1=1, F1=1, M1=1)  # the global cap still holds
+    assert next_to_introduce(slots, seq, domains=domains) is None
+
+
+def test_cross_lane_prerequisites_wait_for_their_skill():
+    seq = ["N1", "N2", "M1"]
+    domains = {"N1": "nbt", "N2": "nbt", "M1": "md"}
+    prereqs = {"M1": ("N2",)}
+    slots = lane_slots(N1=9)
+    assert next_to_introduce(slots, seq, domains=domains, prereqs=prereqs) == "N2"
+    slots = lane_slots(N1=9, N2=1)
+    assert next_to_introduce(slots, seq, domains=domains, prereqs=prereqs) is None
+    slots = lane_slots(N1=9, N2=2)
+    assert next_to_introduce(slots, seq, domains=domains, prereqs=prereqs) == "M1"
+
+
+def test_every_prerequisite_is_a_real_earlier_or_other_lane_skill():
+    from mathkids.engine import REGISTRY, SEQUENCES
+    from mathkids.engine.base import LANE_PREREQS
+
+    for skill, needs in LANE_PREREQS.items():
+        seq = SEQUENCES[REGISTRY[skill].grade]
+        for need in needs:
+            assert need in seq and REGISTRY[need].domain != REGISTRY[skill].domain
+
+
+# --- spacing and bands ------------------------------------------------------------
+
+def test_reviews_of_established_ideas_spread_out():
+    state = l.empty_state("add_ones", 3)
+    days = []
+    for i, day in enumerate((100, 100, 101, 108, 122, 152, 212)):
+        state = l.evidence_update(state, True, day, i, "independent")
+        days.append(state["due_at"] - day)
+    assert days[2:] == [7, 14, 30, 60, 60]
+    state = l.evidence_update(state, False, 300, 99, "established")
+    state = l.evidence_update(state, True, 300, 100, "established")
+    assert state["due_at"] - 300 == 7  # a miss starts the spacing over
+
+
+def test_story_frontier_comes_before_a_single_due_review():
+    known = {}
+    gates = w.gates(4)
+    for pair in gates[:3]:
+        known[pair] = dict(stage="established", due_at=90)
+    assert w.select(known, 4, 100) == gates[0]  # three due: catch up first
+    known[gates[0]]["due_at"] = known[gates[1]]["due_at"] = 200
+    assert w.select(known, 4, 100) == gates[3]  # one due: the frontier wins
+
+
+def test_bands_borrow_established_evidence():
+    known = {("add_ones", 4): dict(l.empty_state("add_ones", 4), stage="established"),
+             ("match", 2): dict(l.empty_state("match", 2), stage="established")}
+    assert teaching.effective(known, "add_ones", 3)["stage"] == "established"
+    assert teaching.effective(known, "match", 3)["stage"] == "faded"
+    assert teaching.effective(known, "match", 4)["stage"] == "probe"
+    story = {("story_take", 2): dict(l.empty_state("story_take", 2), stage="established")}
+    assert teaching.effective(story, "story_take", 1)["stage"] == "probe"
+
+
+# --- parent view ----------------------------------------------------------------
+
+@pytest.mark.parametrize("expected,given,ms,previous,kind", [
+    ("20", "10", 6000, None, "place_name"),          # Jacob: "tens part worth?"
+    ("800000", "100000", 9000, None, "place_name"),  # Samuel: value of the 8
+    ("853", "953", 9000, None, "one_off"),
+    ("1", "40", 5000, "40", "copy"),
+    ("50", "", 9000, None, "blank"),
+    ("50", "7", 300, None, "blank"),
+    ("864", "721", 9000, None, None),
+    ("100", "100", 9000, None, None),
+])
+def test_mistake_patterns(expected, given, ms, previous, kind):
+    from mathkids.misconceptions import classify
+
+    assert classify(expected, given, ms, previous) == kind
+
+
+def test_health_names_a_stall_and_is_quiet_when_well(app_db):
+    from mathkids import health
+
+    _, d = app_db
+    today = db.today_ordinal()
+    seq = ["4.OA.A.3.a", "4.OA.A.1", "4.NBT.B.4"]
+    run(db.introduce_skill(d, 1, "4.NBT.B.4", today - 40, "2026-09-01T10:00:00-04:00"))
+    run(db.save_skill_state(d, 1, "4.NBT.B.4", attempts=4, due_at=today - 30))
+    for i in range(10):  # ten short nights of lessons and nothing else
+        day = today - 20 + i
+        run(d.run("INSERT INTO session (kid_id,plan,day,started_at,ended_at,answered) "
+                  "VALUES (1,'[]',?,?,?,2)", day, "t", "t"))
+        sid = run(d.first("SELECT MAX(id) AS id FROM session"))["id"]
+        run(d.run("INSERT INTO learning_session (session_id,version,budget,used) VALUES (?,1,12,3)", sid))
+        run(d.run("INSERT INTO practice_activity (session_id,slot,kid_id,skill_id,component,band,"
+                  "mode,snapshot,progress,started_at) VALUES (?,0,1,'4.NBT.B.4','add_parts',3,"
+                  "'guided','{}','{}','t')", sid))
+    text = " ".join(run(health.kid_health(d, 1, seq, today)))
+    assert "waited 10 practice nights" in text
+    assert "No new skill in 10 practice nights" in text
+    assert "median of 3 answers" in text
+    assert "no problem solved without help" in text
+    run(d.run("DELETE FROM session"))
+    run(d.run("UPDATE skill_state SET due_at=?", today + 3))
+    assert run(health.kid_health(d, 1, seq, today)) == []
+
+
+def test_history_explains_choices_and_lists_what_was_not_reached(app_db):
+    c, d = app_db
+    run(db.introduce_skill(d, 1, "4.NBT.B.4", db.today_ordinal(), db.now_iso()))
+    start_plan(d, [{"skill": "4.NBT.B.4", "level": 1, "seed": 41, "review": True},
+                   {"skill": "4.OA.A.1", "level": 1, "seed": 42}])
+    c.get("/kid/1/play")
+    _, a = current(d)
+    c.post("/kid/1/step", data=step_data(a, right(a)))
+    run(db.end_session(d, a["session_id"], db.now_iso()))
+    page = c.get("/parent/kid/1/history").text
+    assert "Why this problem: Review" in page
+    assert "Not reached in this set: " in page and "4.OA" not in page.split("Not reached")[0][-5:]
+    page = c.get("/parent").text
+    assert "Needs a look" in page or "Practice is on track" in page
+
+
+def test_stories_vary_their_names_and_objects():
+    pairs = set()
+    for seed in range(60):
+        prompt = w.task("story_take", 2, "independent", seed)["prompt"]
+        name = prompt.split()[0]
+        thing = next(t for t in w.THINGS if t in prompt)
+        assert prompt.count(thing) == 2  # the object stays the same within a story
+        pairs.add((name, thing))
+    assert len(pairs) >= 12
+
+
+def test_prompt_report_flags_a_tricky_wording(tmp_path):
+    from tools.prompt_report import report, template
+
+    assert template("Round 27,704 to the nearest ten.") == "Round # to the nearest ten."
+    path = tmp_path / "r.db"
+    d = db.SqliteDB(str(path))
+    run(db.init_db(d))
+    for i in range(12):
+        tricky = i % 2 == 0
+        run(db.record_attempt(d, 1, "x", 1, 1, f"Put {i} with the tens: 40 + 10 = ?" if tricky
+                              else f"{i} + 1 = ?", "1", "2" if tricky and i % 4 == 0 else "1",
+                              not (tricky and i % 4 == 0), 5000, 100 + i % 3, "t"))
+    d.close()
+    rows = {r["template"]: r for r in report(str(path))}
+    assert rows["Put # with the tens: # + # = ?"]["flag"]
+    assert not rows["# + # = ?"]["flag"]

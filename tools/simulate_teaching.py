@@ -3,6 +3,7 @@
 Usage:
     uv run python -m tools.simulate_teaching backups/d1-snapshot-20261023.db
     uv run python -m tools.simulate_teaching SNAPSHOT --nights 12 --slip 0.05 --seed 3
+    uv run python -m tools.simulate_teaching SNAPSHOT --nights 1 --show   # tomorrow's sets
 
 Unlike tools/simulate_ramp.py (pure mastery/scheduler math), this drives the actual
 routes (start, play, answer, step) with a simulated calendar, so the teaching engine,
@@ -44,6 +45,7 @@ class Night:
     taught: list[str] = field(default_factory=list)
     new_skills: list[str] = field(default_factory=list)
     most_overdue: str | None = None
+    shown: list[str] = field(default_factory=list)  # every question asked, in order
 
 
 def practice_days(start: date, nights: int, weekdays: set[int]) -> list[date]:
@@ -155,6 +157,28 @@ def night(c, dbx, kid, day, rng, slip, registry, app_module, broken) -> Night:
     rec.taught = [f"{r['component']}:{r['band']}/{r['mode']}" for r in dbx._conn.execute(
         "SELECT component, band, mode FROM practice_activity WHERE session_id=? "
         "AND mode IN ('guided','faded')", (sid,))]
+    legacy = iter(dbx._conn.execute(
+        "SELECT * FROM attempt WHERE session_id=? ORDER BY id", (sid,)).fetchall())
+    for slot, item in enumerate(plan[:session["answered"]]):
+        act = dbx._conn.execute("SELECT * FROM practice_activity WHERE session_id=? AND slot=?",
+                                (sid, slot)).fetchone()
+        tag = "review" if item.get("review") else "deferred" if item.get("deferred") else ""
+        if act is None:
+            if not item.get("deferred"):
+                a = next(legacy, None)
+                if a:
+                    rec.shown.append(f"[{item['skill']}{' ' + tag if tag else ''}] {a['prompt']}")
+            continue
+        snap = json.loads(act["snapshot"])
+        head = f"[{item['skill']} {act['component']}/{act['mode']}{' ' + tag if tag else ''}]"
+        why = snap.get("reason", "")
+        for r in dbx._conn.execute("SELECT * FROM step_response WHERE activity_id=? ORDER BY revision",
+                                   (act["id"],)):
+            rec.shown.append(f"{head} {r['prompt']} -> {r['expected']}"
+                             f"{'' if r['correct'] else ' (answered ' + r['raw_input'] + ')'}"
+                             f"{'  <' + why + '>' if why and r['revision'] == 0 else ''}")
+        if act["attempt_id"]:  # whole problems also wrote an attempt row
+            next(legacy, None)
     after = {r["skill_id"] for r in dbx._conn.execute(
         "SELECT skill_id FROM skill_state WHERE kid_id=?", (kid_id,))}
     rec.new_skills = sorted(after - before)
@@ -179,6 +203,7 @@ def main() -> None:
     parser.add_argument("--nights", type=int, default=10)
     parser.add_argument("--slip", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--show", action="store_true", help="print every question asked")
     args = parser.parse_args()
     records, broken = simulate(args.snapshot, args.nights, args.slip, args.seed)
     for r in records:
@@ -186,6 +211,9 @@ def main() -> None:
               f"reviews={','.join(r.reviews) or '-'} deferred={len(r.deferred)} "
               f"taught={','.join(dict.fromkeys(r.taught)) or '-'} "
               f"new={','.join(r.new_skills) or '-'}")
+        if args.show:
+            for line in r.shown:
+                print("      ", line)
     print("\nInvariants:", "all held" if not broken else "")
     for b in broken:
         print("  BROKEN", b)

@@ -178,3 +178,11 @@ h1, h2 { color: var(--accent); }
 .answer-correct { color: #146c36; }
 .answer-wrong { color: #9d2525; }
 .history-filter { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+
+/* Parent view: health strip and mistake patterns */
+.health { padding: .6rem 1rem; border-radius: .6rem; }
+.health.ok { background: #e6f6ea; }
+.health.warn { background: #fff3d6; }
+.health ul { margin: .3rem 0 0; padding-left: 1.2rem; }
+.mistakes { margin: .8rem 0; }
+.mistakes .pattern { margin: .5rem 0 .8rem; }

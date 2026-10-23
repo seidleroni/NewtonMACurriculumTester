@@ -114,14 +114,25 @@ def _off_the_floor(slot: Slot) -> bool:
     return slot.mastered or slot.level >= 2
 
 
+PER_DOMAIN = 2  # unmastered skills in play at once within one domain (lane)
+
+
 def next_to_introduce(
-    slots: dict[str, Slot], sequence: list[str], max_active_unmastered: int = 3
+    slots: dict[str, Slot], sequence: list[str], max_active_unmastered: int = 3,
+    domains: dict[str, str] | None = None, prereqs: dict[str, tuple[str, ...]] | None = None,
 ) -> str | None:
     """Return the next locked skill to introduce, or None if it's not time yet.
 
     New skills are paced deliberately: never more than `max_active_unmastered` in play
-    at once, and a new one unlocks only when every current unmastered skill has climbed
-    off its entry floor (see `_off_the_floor`)."""
+    at once. Without `domains`, a new one unlocks only when every current unmastered
+    skill has climbed off its entry floor (see `_off_the_floor`).
+
+    With `domains` (skill -> Common Core domain), each domain is a lane in sequence
+    order: a lane's next skill unlocks when that lane's unmastered skills are off the
+    floor (at most PER_DOMAIN of them), so one hard area cannot block clocks or shapes
+    that do not depend on it. `prereqs` names cross-lane dependencies, which must be
+    introduced and off the floor first. Among ready lanes the least loaded wins, then
+    curriculum order."""
     introduced = set(slots)
     locked = [s for s in sequence if s not in introduced]
     if not locked:
@@ -129,7 +140,19 @@ def next_to_introduce(
     active_unmastered = [s for s in introduced if not slots[s].mastered]
     if len(active_unmastered) >= max_active_unmastered:
         return None
-    ready = all(_off_the_floor(slots[s]) for s in active_unmastered)
-    if active_unmastered and not ready:
-        return None
-    return locked[0]
+    if domains is None:
+        ready = all(_off_the_floor(slots[s]) for s in active_unmastered)
+        if active_unmastered and not ready:
+            return None
+        return locked[0]
+    prereqs = prereqs or {}
+    candidates = []
+    for lane in dict.fromkeys(domains[s] for s in locked):
+        skill = next(s for s in locked if domains[s] == lane)
+        busy = [s for s in active_unmastered if domains.get(s) == lane]
+        if len(busy) >= PER_DOMAIN or not all(_off_the_floor(slots[s]) for s in busy):
+            continue
+        if not all(p in slots and _off_the_floor(slots[p]) for p in prereqs.get(skill, ())):
+            continue
+        candidates.append((len(busy), sequence.index(skill), skill))
+    return min(candidates)[2] if candidates else None

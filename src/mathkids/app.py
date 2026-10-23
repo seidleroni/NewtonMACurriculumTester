@@ -18,10 +18,13 @@ from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from mathkids import db, history, learning, teaching
+from mathkids import db, health, history, learning, misconceptions, teaching
 from mathkids.engine import REGISTRY, SEQUENCES, Problem
+from mathkids.engine.base import LANE_PREREQS
 from mathkids.mastery import MasteryState, apply_attempt, is_retained, stars
-from mathkids.scheduler import Slot, compose_blocks, next_due, next_to_introduce, update_box
+from mathkids.scheduler import (
+    MAX_REVIEWS, Slot, compose_blocks, next_due, next_to_introduce, update_box,
+)
 
 FAST_MS = 8000  # answers quicker than this earn the speed bonus
 
@@ -136,14 +139,23 @@ def build_slots(states: dict, sequence: list[str], answers: dict) -> dict[str, S
     }
 
 
+def next_skill(slots: dict[str, Slot], sequence: list[str]) -> str | None:
+    """The next skill to unlock, one lane per Common Core domain."""
+    domains = {sid: REGISTRY[sid].domain for sid in sequence}
+    return next_to_introduce(slots, sequence, domains=domains, prereqs=LANE_PREREQS)
+
+
 async def ensure_introductions(dbx, kid_id: int, sequence: list[str], today: int, now: str) -> None:
     states = await db.get_skill_states(dbx, kid_id)
     if not states:
         for sid in sequence[:2]:
             await db.introduce_skill(dbx, kid_id, sid, today, now)
         return
-    answers = await db.recent_answers(dbx, kid_id)
-    nxt = next_to_introduce(build_slots(states, sequence, answers), sequence)
+    slots = build_slots(states, sequence, await db.recent_answers(dbx, kid_id))
+    backlog = sum(1 for s in slots.values() if s.attempts and s.due_at <= today)
+    if backlog > MAX_REVIEWS:
+        return  # welcome back: catch up on reviews before anything new
+    nxt = next_skill(slots, sequence)
     if nxt:
         await db.introduce_skill(dbx, kid_id, nxt, today, now)
 
@@ -467,7 +479,7 @@ async def done(request: Request, kid_id: int):
         states = await db.get_skill_states(dbx, kid_id)
         sequence = grade_sequence(kid["grade"])
         answers = await db.recent_answers(dbx, kid_id)
-        nxt = next_to_introduce(build_slots(states, sequence, answers), sequence)
+        nxt = next_skill(build_slots(states, sequence, answers), sequence)
 
         practiced = []
         if session:
@@ -618,6 +630,9 @@ async def parent(request: Request):
                     "focus": focus,
                     "trouble": trouble,
                     "learning": await teaching.parent_progress(dbx, kid["id"]),
+                    "health": await health.kid_health(dbx, kid["id"], sequence, today),
+                    "mistakes": misconceptions.summarize(
+                        await misconceptions.recent_mistakes(dbx, kid["id"], today)),
                 }
             )
         return templates.TemplateResponse(
