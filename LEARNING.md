@@ -155,12 +155,17 @@ first three answers at that level were all carrying errors.
   carry twice. Stored skill levels were not changed: Samuel's level 2 now means the 3-digit,
   one-carry step. His five answers of November 4 and 8 were stored as level 2 but were the
   old 4-digit problems. `backups/relabel-samuel-4nbtb4-20261109.sql` (rehearsed on the
-  snapshot, not applied) relabels them, and their whole-problem learning state, to level 4.
-  Without it, those misses would open a lesson on addition without carrying.
+  snapshot, applied to production right after the deploy with the parent's approval)
+  relabels them, and their whole-problem learning state, to level 4. Without it, those
+  misses would open a lesson on addition without carrying.
 - **Parent view.** A new health line flags a set that was opened and left without an answer
   when no set has been finished since. The grade 4 place-value questions now ask "how much is
   the 9 worth", not "what is the value of the 9"; the decomposition lessons' explanations
   and feedback use the same words.
+
+Deployed November 9, 2026 as Worker version `51bf46b7-cfe8-41ee-88a6-cb46b2982cd2`
+(commit `695e0a8`; 1,211 tests passed). A full export taken just before is kept locally as
+`backups/mathkids-predeploy-20261109.sql`.
 
 ### Checking a change against real data
 
