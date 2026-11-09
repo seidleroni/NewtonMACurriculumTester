@@ -4,12 +4,16 @@ Usage:
     uv run python -m tools.simulate_teaching backups/d1-snapshot-20261023.db
     uv run python -m tools.simulate_teaching SNAPSHOT --nights 12 --slip 0.05 --seed 3
     uv run python -m tools.simulate_teaching SNAPSHOT --nights 1 --show   # tomorrow's sets
+    uv run python -m tools.simulate_teaching SNAPSHOT --weekdays 2,6       # Wed and Sun only
+    uv run python -m tools.simulate_teaching SNAPSHOT --every 3            # every third day
 
-Unlike tools/simulate_ramp.py (pure mastery/scheduler math), this drives the actual
+Practice nights default to Monday-Thursday. Unlike tools/simulate_ramp.py (pure
+mastery/scheduler math), this drives the actual
 routes (start, play, answer, step) with a simulated calendar, so the teaching engine,
 budget and scheduler interact exactly as they do for the kids. The source file is
 never modified. Each night prints, per kid: answers given, minutes-equivalent (answers),
-reviews served, deferred slots, new skills, and what was taught.
+reviews served, deferred slots, new skills, what was taught, and the review backlog
+before the set (marked "gate" when it was large enough to hold back a new skill).
 
 Invariants checked (and listed at the end when broken):
   * every night serves the kid's most overdue review, if any was due;
@@ -20,6 +24,7 @@ Invariants checked (and listed at the end when broken):
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import random
@@ -45,10 +50,17 @@ class Night:
     taught: list[str] = field(default_factory=list)
     new_skills: list[str] = field(default_factory=list)
     most_overdue: str | None = None
+    backlog: int = 0  # due reviews before the set started
+    gated: bool = False  # the backlog held back a new skill (app.ensure_introductions)
+    in_play: int = 0  # unmastered skills after the set
     shown: list[str] = field(default_factory=list)  # every question asked, in order
 
 
-def practice_days(start: date, nights: int, weekdays: set[int]) -> list[date]:
+def practice_days(start: date, nights: int, weekdays: set[int],
+                  every: int | None = None) -> list[date]:
+    """`every` (days between practice nights) overrides `weekdays`."""
+    if every:
+        return [start + timedelta(days=i * every) for i in range(nights)]
     days, d = [], start
     while len(days) < nights:
         if d.weekday() in weekdays:
@@ -59,7 +71,8 @@ def practice_days(start: date, nights: int, weekdays: set[int]) -> list[date]:
 
 def simulate(source: str | Path, nights: int = 10, slip: float = 0.0, seed: int = 1,
              weekdays: set[int] = frozenset({0, 1, 2, 3}), start: date | None = None,
-             kids: list[int] | None = None) -> tuple[list[Night], list[str]]:
+             kids: list[int] | None = None,
+             every: int | None = None) -> tuple[list[Night], list[str]]:
     """Run `nights` practice nights for each kid. Returns per-night records and a list of
     broken invariants (empty when everything held)."""
     tmp = Path(tempfile.mkdtemp()) / "sim.db"
@@ -87,7 +100,7 @@ def simulate(source: str | Path, nights: int = 10, slip: float = 0.0, seed: int 
                         if kids is None or k["id"] in kids]
             last = dbx._conn.execute("SELECT MAX(day) FROM session").fetchone()[0]
             first = start or (date.fromordinal(last) + timedelta(days=1) if last else date.today())
-            for day in practice_days(first, nights, set(weekdays)):
+            for day in practice_days(first, nights, set(weekdays), every):
                 clock["day"] = day
                 for kid in kid_rows:
                     records.append(night(c, dbx, kid, day, rng, slip, REGISTRY, app_module, broken))
@@ -113,6 +126,13 @@ def night(c, dbx, kid, day, rng, slip, registry, app_module, broken) -> Night:
         "SELECT skill_id FROM skill_state WHERE kid_id=? AND due_at<=? ORDER BY due_at, score",
         (kid_id, today)).fetchall()
     rec.most_overdue = due[0]["skill_id"] if due else None
+    # The same backlog app.ensure_introductions measures, and whether it held back a skill.
+    sequence = app_module.grade_sequence(kid["grade"])
+    slots = app_module.build_slots(asyncio.run(app_module.db.get_skill_states(dbx, kid_id)),
+                                   sequence, asyncio.run(app_module.db.recent_answers(dbx, kid_id)))
+    rec.backlog = sum(1 for s in slots.values() if s.attempts and s.due_at <= today)
+    rec.gated = (rec.backlog > app_module.MAX_REVIEWS
+                 and app_module.next_skill(slots, sequence) is not None)
     page = c.post(f"/kid/{kid_id}/start")
     sid = dbx._conn.execute("SELECT MAX(id) FROM session WHERE kid_id=?", (kid_id,)).fetchone()[0]
     for _ in range(200):
@@ -182,6 +202,9 @@ def night(c, dbx, kid, day, rng, slip, registry, app_module, broken) -> Night:
     after = {r["skill_id"] for r in dbx._conn.execute(
         "SELECT skill_id FROM skill_state WHERE kid_id=?", (kid_id,))}
     rec.new_skills = sorted(after - before)
+    slots = app_module.build_slots(asyncio.run(app_module.db.get_skill_states(dbx, kid_id)),
+                                   sequence, asyncio.run(app_module.db.recent_answers(dbx, kid_id)))
+    rec.in_play = sum(1 for s in slots.values() if not s.mastered)
     if rec.most_overdue and rec.most_overdue not in [p["skill"] for p in plan
                                                      if not p.get("deferred")]:
         broken.append(f"{rec.day} {rec.kid}: most overdue review {rec.most_overdue} not served")
@@ -204,16 +227,28 @@ def main() -> None:
     parser.add_argument("--slip", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--show", action="store_true", help="print every question asked")
+    parser.add_argument("--weekdays", default="0,1,2,3",
+                        help="practice weekdays, 0=Monday .. 6=Sunday (default 0,1,2,3)")
+    parser.add_argument("--every", type=int, default=None,
+                        help="practice every N days instead of on --weekdays")
     args = parser.parse_args()
-    records, broken = simulate(args.snapshot, args.nights, args.slip, args.seed)
+    weekdays = {int(d) for d in args.weekdays.split(",")}
+    records, broken = simulate(args.snapshot, args.nights, args.slip, args.seed,
+                               weekdays=weekdays, every=args.every)
     for r in records:
         print(f"{r.day} {r.kid:7} answers={r.responses:2} whole={r.whole:2} "
+              f"backlog={r.backlog}{' gate' if r.gated else ''} "
               f"reviews={','.join(r.reviews) or '-'} deferred={len(r.deferred)} "
               f"taught={','.join(dict.fromkeys(r.taught)) or '-'} "
-              f"new={','.join(r.new_skills) or '-'}")
+              f"new={','.join(r.new_skills) or '-'} in_play={r.in_play}")
         if args.show:
             for line in r.shown:
                 print("      ", line)
+    print()
+    for kid in dict.fromkeys(r.kid for r in records):
+        mine = [r for r in records if r.kid == kid]
+        print(f"{kid}: {sum(len(r.new_skills) for r in mine)} new skills in {len(mine)} nights, "
+              f"backlog gate held back a skill on {sum(r.gated for r in mine)}")
     print("\nInvariants:", "all held" if not broken else "")
     for b in broken:
         print("  BROKEN", b)

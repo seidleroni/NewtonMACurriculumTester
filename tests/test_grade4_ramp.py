@@ -35,18 +35,68 @@ def _borrows(a: int, b: int) -> bool:
     return False
 
 
+def _carry_count(a: int, b: int) -> int:
+    count = carry = 0
+    while a or b or carry:
+        carry = int(a % 10 + b % 10 + carry >= 10)
+        count += carry
+        a, b = a // 10, b // 10
+    return count
+
+
 def test_add_sub_to_million_forces_carry_then_borrow():
-    # 4.NBT.B.4: L2 ("carry add") and L4 ("borrow subtract") must always exercise
+    # 4.NBT.B.4: L4 ("carry add") and L6 ("borrow subtract") must always exercise
     # their regrouping, not leave it to chance.
-    for p in _probs("4.NBT.B.4", 2):
-        assert p.payload["op"] == "+" and _carries(p.payload["a"], p.payload["b"]), p.prompt
     for p in _probs("4.NBT.B.4", 4):
+        assert p.payload["op"] == "+" and _carries(p.payload["a"], p.payload["b"]), p.prompt
+    for p in _probs("4.NBT.B.4", 6):
         assert p.payload["op"] == "-" and _borrows(p.payload["a"], p.payload["b"]), p.prompt
 
 
 def test_add_sub_to_million_floor_has_no_carry():
     for p in _probs("4.NBT.B.4", 1):
         assert p.payload["op"] == "+" and not _carries(p.payload["a"], p.payload["b"]), p.prompt
+
+
+def test_add_sub_to_million_steps_up_with_exactly_one_carry():
+    # The November 2026 rungs between the no-carry floor and 4-digit carrying: exactly
+    # one carry, from either low place, and the sum keeps the addends' digit count.
+    for level, digits in ((2, 3), (3, 4)):
+        sites = set()
+        for p in _probs("4.NBT.B.4", level):
+            a, b = p.payload["a"], p.payload["b"]
+            assert p.payload["op"] == "+", p.prompt
+            assert len(str(a)) == len(str(b)) == len(str(a + b)) == digits, p.prompt
+            assert _carry_count(a, b) == 1, p.prompt
+            sites.add(next(i for i in range(digits) if a // 10**i % 10 + b // 10**i % 10 >= 10))
+        assert sites == set(range(digits - 1)), (level, sites)  # every place below the top
+
+
+def test_add_sub_to_million_teaching_gates_follow_the_ladder():
+    from mathkids.learning import requirements
+
+    base = ["decompose", "match", "add_parts"]
+    single = base + ["add_ones", "add_tens"]
+    multi = single + ["add_multi"]
+    borrow = multi + ["sub_parts", "sub_ones", "sub_tens", "sub_multi", "sub_zero"]
+    expected = {1: base, 2: single, 3: single, 4: multi, 5: multi + ["sub_parts"],
+                6: borrow, 7: borrow}
+    for level, path in expected.items():
+        band, got = requirements("4.NBT.B.4", level)
+        assert got == path, level
+        assert {len(str(p.payload["a"])) for p in _probs("4.NBT.B.4", level)} == {band}, level
+
+
+def test_add_sub_to_million_renumbering_keeps_stored_problems():
+    # Level 1 is unchanged and old levels 2-5 moved up by two, so a stored (level, seed)
+    # regenerates exactly what the kid saw (values recorded before the change).
+    sk = REGISTRY["4.NBT.B.4"]
+    seen = {(1, 0): "708 + 241 = ?", (1, 1): "311 + 547 = ?", (1, 7): "661 + 108 = ?",
+            (4, 0): "7,087 + 7,479 = ?", (4, 7): "6,612 + 3,089 = ?",
+            (5, 1): "7,117 - 2,117 = ?", (6, 0): "96,474 - 70,868 = ?",
+            (7, 1): "166,172 + 268,459 = ?", (7, 7): "258,176 + 415,002 = ?"}
+    for (level, seed), prompt in seen.items():
+        assert sk.generate(level, random.Random(seed)).prompt == prompt
 
 
 def test_line_plot_top_band_is_unlike_denominators():
@@ -92,8 +142,9 @@ def test_angle_fractions_are_fraction_only():
 
 
 def test_steep_grade4_skills_have_five_bands():
-    for sid in ("4.OA.A.3.a", "4.NBT.B.4", "4.NF.B.4"):
+    for sid in ("4.OA.A.3.a", "4.NF.B.4"):
         assert REGISTRY[sid].max_level == 5, sid
+    assert REGISTRY["4.NBT.B.4"].max_level == 7  # two one-carry rungs added November 2026
 
 
 def _sig(sk, level, seed):

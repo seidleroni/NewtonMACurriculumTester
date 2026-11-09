@@ -267,8 +267,13 @@ the least loaded wins, then sequence order. Cross-lane dependencies are listed i
 4.NBT.B.5 — and must be introduced and off the floor first. No new skill unlocks on a
 night when more than 4 reviews are due (welcome back from a break with reviews first).
 
-**Mastery is sticky.** A mastered skill keeps its badge (and its place outside the cap of
-3) through one slip; it lapses only after 2 misses in its last 5 real answers. A skill
+Since November 2026 the lanes do the pacing: the global cap of 3 applies only without lanes,
+and with lanes it is a safety ceiling of **6** unmastered skills (`MAX_ACTIVE_LANES`). At most
+2 skills may sit on their entry level at once. A lane holding more than 2 unmastered skills
+(from the old rule) stays closed until it drops below 2.
+
+**Mastery is sticky.** A mastered skill keeps its badge (and its place outside the
+unmastered cap) through one slip; it lapses only after 2 misses in its last 5 real answers. A skill
 re-banded to a higher `max_level` keeps a badge earned before. Blank and duplicate
 submissions never count as answers.
 
@@ -279,7 +284,9 @@ taught, so its mastery keeps moving. With teaching on, a set holds at most one l
 LEARNING.md for the budget rules. For the kid's active pool:
 1. **Due reviews** — up to ~5, most-overdue and lowest-score first.
 2. **Focus** — ~5 problems on the current learning-edge skill at its current level (adaptive:
-   bumps a level mid-session after a short correct streak, eases after misses).
+   bumps a level mid-session after a short correct streak, eases after misses). Each other
+   skill still on its entry level gets 3 problems first, taken from the focus skill's share
+   (which keeps at least 2), so a new skill can leave its floor in about two sets.
 3. **Stretch** — 1–2 problems one level harder, or a peek at the next skill to be introduced.
 4. **Fill** — remaining slots from the weakest active skills.
 
@@ -566,7 +573,7 @@ Every skill is *introduced and tracked* regardless of phase; phases just stage t
 | 4.NBT.A.1 | Digit = 10× the place to its right | integer | 1 |
 | 4.NBT.A.2 | Read/write/expand/compare to 1,000,000 | int+comparator+text | 1 |
 | 4.NBT.A.3 | Round to any place | integer | 1 |
-| 4.NBT.B.4 | Add/subtract to 1,000,000 (std algorithm) | integer | 1 |
+| 4.NBT.B.4 | Add/subtract to 1,000,000 (std algorithm; 7 levels, one carry before many) | integer | 1 |
 | 4.NBT.B.5 | Multiply ≤4-digit×1-digit & 2-digit×2-digit | integer | 1 |
 | 4.NBT.B.6 | Divide 4-digit ÷ 1-digit (quotient+remainder) | int pair | 1 |
 | 4.NF.A.1 | Equivalent fractions | fraction | 1 |

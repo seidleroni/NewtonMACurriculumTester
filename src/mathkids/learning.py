@@ -99,12 +99,16 @@ def requirements(skill_id: str, level: int) -> tuple[int, list[str]]:
         if level >= 5:
             path += ["add_tens", "add_multi"]
     elif skill_id == "4.NBT.B.4":
-        band = [3, 4, 4, 5, 6][level - 1]
+        # Levels 2-3 carry exactly once (from the ones or the tens, and at level 3 also
+        # the hundreds), so regrouping more than one place waits for level 4.
+        band = [3, 3, 4, 4, 4, 5, 6][level - 1]
         if level >= 2:
-            path += ["add_ones", "add_tens", "add_multi"]
-        if level >= 3:
-            path += ["sub_parts"]
+            path += ["add_ones", "add_tens"]
         if level >= 4:
+            path += ["add_multi"]
+        if level >= 5:
+            path += ["sub_parts"]
+        if level >= 6:
             path += ["sub_ones", "sub_tens", "sub_multi", "sub_zero"]
     return band, path
 
@@ -384,19 +388,21 @@ def task(component: str, band: int, mode: str, seed: int, known=frozenset(),
         ps = places(n)
         if mode == "guided":
             example = 56 if band == 2 else 356
-            explanation = f"{example} = {parts(example)}. Each digit tells us the value of one part."
+            explanation = (f"{example} = {parts(example)}. Each digit tells us how much one "
+                           "part is worth.")
             steps = [step(f"{missing_part(n, p)}. What is missing?",
                           n // p % 10 * p, component,
                           f"The digit {n // p % 10} counts groups of {p:,}. "
                           f"Each group is worth {p:,}.", cell=(0, p)) for p in reversed(ps)]
             steps.append(step(f"Put it back together: {parts(n)} = ?", n, component,
-                              "The parts and the original number have the same value.",
+                              "The parts together are worth the same as the number.",
                               cell=("answer", 0)))
             table = table_for([n], "")
         else:
             p = rng.choice(ps)
             steps = [step(f"{missing_part(n, p)}. What is missing?", n // p % 10 * p,
-                          component, f"The missing part is the value of the {PLACES[p]} digit.")]
+                          component, f"The missing part is how much the {PLACES[p]} digit "
+                                     "is worth.")]
         prompt = f"Break apart {n:,}"
     elif component == "match":
         n = rng.randint(10 ** (band - 1), 10 ** band - 1)

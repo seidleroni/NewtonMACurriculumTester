@@ -48,10 +48,20 @@ def _interleave(plan: list[str]) -> list[str]:
     return result
 
 
+FOCUS_SLOTS = 5  # the first unmastered skill in sequence order
+FLOOR_SLOTS = 3  # each other skill still on its entry level (see below)
+MIN_FOCUS = 2    # what the focus skill keeps when skills on the floor need room
+
+
 def compose_session(
     slots: dict[str, Slot], sequence: list[str], today_ordinal: int, n: int = 12
 ) -> list[str]:
-    """Return an ordered list of skill ids (length <= n) for today's session."""
+    """Return an ordered list of skill ids (length <= n) for today's session.
+
+    Due reviews come first, then the focus skill. Each other skill still on its entry
+    level gets FLOOR_SLOTS answers, taken from the focus skill's share down to MIN_FOCUS:
+    four clean first answers lift a skill off its floor (mastery's placement probe), so
+    a new skill leaves it in about two nights instead of waiting on one leftover slot."""
     active = [sid for sid in sequence if sid in slots]
     if not active:
         return []
@@ -62,10 +72,18 @@ def compose_session(
         key=lambda s: (slots[s].due_at, slots[s].score),
     )
     focus = non_mastered[0]
+    floor = [s for s in non_mastered if s != focus and not _off_the_floor(slots[s])]
 
     plan: list[str] = [sid for sid in due[:5] if sid != focus]
-    plan += [focus] * 5
-    stretch = next((s for s in non_mastered if s != focus), None)
+    if floor:
+        plan += [focus] * MIN_FOCUS
+        for s in floor:
+            plan += [s] * max(0, FLOOR_SLOTS - plan.count(s))  # a due review counts
+        room = n - len(plan) - 1  # keep one slot for the stretch skill
+        plan += [focus] * max(0, min(FOCUS_SLOTS - MIN_FOCUS, room))
+    else:
+        plan += [focus] * FOCUS_SLOTS
+    stretch = next((s for s in non_mastered if s != focus and s not in floor), None)
     if stretch:
         plan.append(stretch)
 
@@ -118,25 +136,31 @@ def _off_the_floor(slot: Slot) -> bool:
 
 PER_DOMAIN = 2  # unmastered skills in play at once within one domain (lane)
 MAX_ON_FLOOR = 2  # skills still on their entry level at once: new skills arrive gently
+MAX_ACTIVE = 3  # unmastered skills in play at once, single-lane pacing
+MAX_ACTIVE_LANES = 6  # with lanes: a safety ceiling; PER_DOMAIN and MAX_ON_FLOOR pace
 
 
 def next_to_introduce(
-    slots: dict[str, Slot], sequence: list[str], max_active_unmastered: int = 3,
+    slots: dict[str, Slot], sequence: list[str], max_active_unmastered: int | None = None,
     domains: dict[str, str] | None = None, prereqs: dict[str, tuple[str, ...]] | None = None,
 ) -> str | None:
     """Return the next locked skill to introduce, or None if it's not time yet.
 
     New skills are paced deliberately: never more than `max_active_unmastered` in play
-    at once. Without `domains`, a new one unlocks only when every current unmastered
-    skill has climbed off its entry floor (see `_off_the_floor`).
+    at once (MAX_ACTIVE, or MAX_ACTIVE_LANES with `domains`). Without `domains`, a new
+    one unlocks only when every current unmastered skill has climbed off its entry
+    floor (see `_off_the_floor`).
 
     With `domains` (skill -> Common Core domain), each domain is a lane in sequence
-    order: a lane's next skill unlocks when that lane's unmastered skills are off the
-    floor (at most PER_DOMAIN of them), so one hard area cannot block clocks or shapes
-    that do not depend on it. At most MAX_ON_FLOOR skills may sit on their entry level
-    at once, so new skills still arrive one at a time. `prereqs` names cross-lane dependencies, which must be
-    introduced and off the floor first. Among ready lanes the least loaded wins, then
-    curriculum order."""
+    order: a lane's next skill unlocks when that lane holds fewer than PER_DOMAIN
+    unmastered skills, all off the floor, so one hard area cannot block clocks or shapes
+    that do not depend on it. A lane holding more (from older rules) simply stays closed
+    until it drops below. At most MAX_ON_FLOOR skills may sit on their entry level at
+    once, so new skills still arrive one at a time. `prereqs` names cross-lane
+    dependencies, which must be introduced and off the floor first. Among ready lanes
+    the least loaded wins, then curriculum order."""
+    if max_active_unmastered is None:
+        max_active_unmastered = MAX_ACTIVE_LANES if domains is not None else MAX_ACTIVE
     introduced = set(slots)
     locked = [s for s in sequence if s not in introduced]
     if not locked:

@@ -165,6 +165,28 @@ def regenerate(item: dict) -> Problem:
     return skill.generate(item["level"], random.Random(item["seed"]))
 
 
+SEED_TRIES = 20  # re-rolls per slot to avoid repeating a problem already in the set
+
+
+def fresh_seeds(items: list[tuple[str, int]], rng: random.Random,
+                tries: int = SEED_TRIES) -> list[int]:
+    """One seed per (skill, level) slot. A seed whose problem (prompt and figure: clocks
+    share one prompt) repeats an earlier slot's is re-rolled up to `tries` times; when the
+    skill has too few problems to avoid it, the repeat is kept rather than the slot lost."""
+    seen: set[tuple[str, str]] = set()
+    seeds = []
+    for sid, level in items:
+        for _ in range(tries):
+            seed = rng.randrange(2**52)
+            p = REGISTRY[sid].generate(level, random.Random(seed))
+            key = (p.prompt, json.dumps(p.payload.get("image"), sort_keys=True))
+            if key not in seen:
+                break
+        seen.add(key)
+        seeds.append(seed)
+    return seeds
+
+
 def celebration_headline(num_correct: int, answered: int) -> tuple[str, str]:
     """(emoji, headline) for the summary page. Every tier celebrates —
     finishing the day's set is the achievement."""
@@ -220,11 +242,12 @@ async def start(request: Request, kid_id: int):
         taught = tuple(s for s in sequence if s in slots and not slots[s].mastered
                        and s in learning.SUPPORTED) if teaching_on else ()
         reviews, rest = compose_blocks(slots, sequence, today, n=kid["daily_goal"], checks=taught)
-        rng = random.SystemRandom()
+        order = reviews + rest
+        seeds = fresh_seeds([(sid, slots[sid].level) for sid in order], random.SystemRandom())
         plan = [
-            {"skill": sid, "level": slots[sid].level, "seed": rng.randrange(2**52),
+            {"skill": sid, "level": slots[sid].level, "seed": seed,
              **({"review": True} if i < len(reviews) else {})}
-            for i, sid in enumerate(reviews + rest)
+            for i, (sid, seed) in enumerate(zip(order, seeds))
         ]
         await db.create_session(dbx, kid_id, json.dumps(plan), today, now,
                                 teaching_budget=kid["daily_goal"] if teaching_on else None)

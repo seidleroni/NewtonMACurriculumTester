@@ -49,7 +49,7 @@ class DigitTenTimes(Skill):
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        # Forward "value of a digit" first (3-digit floor, then 4-digit), then the
+        # Forward "how much is the digit worth" first (3-digit floor, then 4-digit), then the
         # backward "ten times as much" reasoning, then both at the full range.
         digit = rng.randint(1, 9)
         if level <= 1:
@@ -68,7 +68,7 @@ class DigitTenTimes(Skill):
         return Problem(
             skill_id=self.id,
             level=level,
-            prompt=f"What is the value of the {digit} in {_group(n)}?",
+            prompt=f"In {_group(n)}, how much is the {digit} worth?",
             answer=IntegerAnswer(digit * place),
             payload={"kind": "value", "digit": digit, "place": place, "n": n},
         )
@@ -76,10 +76,11 @@ class DigitTenTimes(Skill):
     def _ten_times(self, rng, level, digit, places) -> Problem:
         place = rng.choice(places)
         right_place = place // 10
+        article = "an" if digit == 8 else "a"
         prompt = (
-            f"The {digit} in the {_PLACE_NAMES[place]} place is 10 times "
-            f"{'an' if digit == 8 else 'a'} {digit} in the {_PLACE_NAMES[right_place]} place. "
-            f"What is the value of that {digit} in the {_PLACE_NAMES[right_place]} place?"
+            f"The {digit} in the {_PLACE_NAMES[place]} place is worth 10 times as much as "
+            f"{article} {digit} in the {_PLACE_NAMES[right_place]} place. "
+            f"How much is {article} {digit} in the {_PLACE_NAMES[right_place]} place worth?"
         )
         return Problem(
             skill_id=self.id,
@@ -124,12 +125,13 @@ class DigitTenTimes(Skill):
             place = problem.payload["place"]
             return [
                 f"Find which place the {digit} sits in (ones, tens, hundreds, ...).",
-                f"Multiply {digit} by the value of the {_PLACE_NAMES[place]} place.",
+                f"Then multiply {digit} by {_group(place)} to see how much it is worth.",
             ]
         right_place = problem.payload["right_place"]
         return [
-            "Moving one place to the right makes a digit ten times smaller.",
-            f"Multiply {digit} by the value of the {_PLACE_NAMES[right_place]} place.",
+            "One place to the right, the same digit is worth a tenth as much.",
+            f"Multiply {digit} by {_group(right_place)} to see how much it is worth "
+            f"in the {_PLACE_NAMES[right_place]} place.",
         ]
 
     def worked_example(self, problem: Problem) -> str:
@@ -138,8 +140,8 @@ class DigitTenTimes(Skill):
             place = problem.payload["place"]
             n = problem.payload["n"]
             return (
-                f"In {_group(n)}, the {digit} is in the {_PLACE_NAMES[place]} place, so its "
-                f"value is {digit} × {_group(place)} = {_group(digit * place)}."
+                f"In {_group(n)}, the {digit} is in the {_PLACE_NAMES[place]} place, so it is "
+                f"worth {digit} × {_group(place)} = {_group(digit * place)}."
             )
         right_place = problem.payload["right_place"]
         return (
@@ -341,23 +343,31 @@ class AddSubToMillion(Skill):
     grade = 4
     domain = "Number & Operations in Base Ten"
     title = "Add & subtract to 1,000,000"
-    max_level = 5
+    max_level = 7
     answer_type = "integer"
     phase = 1
 
     def generate(self, level: int, rng: random.Random) -> Problem:
-        # no-carry add -> carry add -> no-borrow subtract -> borrow subtract ->
-        # operation choice at the full range. Each rung adds one new demand.
+        # no-carry add -> one carry (3-digit) -> one carry (4-digit) -> carry add ->
+        # no-borrow subtract -> borrow subtract -> operation choice at the full range.
+        # Each rung adds one new demand. Levels 4-7 were levels 2-5 before November
+        # 2026 and keep their generators, so a stored (level, seed) regenerates the same.
         if level <= 1:
             a, b = self._no_carry_add(rng, (100, 10, 1))
             op, ans = "+", a + b
         elif level == 2:
-            a, b = self._carry_add(rng, (1000, 100, 10, 1))
+            a, b = self._one_carry_add(rng, (100, 10, 1))
             op, ans = "+", a + b
         elif level == 3:
+            a, b = self._one_carry_add(rng, (1000, 100, 10, 1))
+            op, ans = "+", a + b
+        elif level == 4:
+            a, b = self._carry_add(rng, (1000, 100, 10, 1))
+            op, ans = "+", a + b
+        elif level == 5:
             a, b = self._no_borrow_sub(rng, (1000, 100, 10, 1))
             op, ans = "-", a - b
-        elif level == 4:
+        elif level == 6:
             a, b = self._borrow_sub(rng, (10000, 1000, 100, 10, 1))
             op, ans = "-", a - b
         elif rng.random() < 0.5:
@@ -388,6 +398,26 @@ class AddSubToMillion(Skill):
             leading = i == 0
             ad = rng.randint(1, 8) if leading else rng.randint(0, 9)
             bd = rng.randint(1, 9 - ad) if leading else rng.randint(0, 9 - ad)
+            a += ad * place
+            b += bd * place
+        return a, b
+
+    @staticmethod
+    def _one_carry_add(rng: random.Random, places: tuple[int, ...]) -> tuple[int, int]:
+        """Two addends (both leading-non-zero) with exactly one carry, out of a random
+        column below the leading one; every other column, with the carry it receives,
+        sums to <= 9, so the sum has as many digits as the addends."""
+        site = rng.randrange(1, len(places))  # index of the column that carries
+        a = b = 0
+        for i, place in enumerate(places):
+            if i == site:
+                ad = rng.randint(1, 9)
+                bd = rng.randint(10 - ad, 9)
+            else:
+                lo = 1 if i == 0 else 0
+                room = 9 - (1 if i == site - 1 else 0)  # the column receiving the carry
+                ad = rng.randint(lo, room - lo)
+                bd = rng.randint(lo, room - ad)
             a += ad * place
             b += bd * place
         return a, b

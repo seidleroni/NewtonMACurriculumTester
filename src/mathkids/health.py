@@ -15,6 +15,7 @@ from statistics import median
 from mathkids import db, learning
 from mathkids.engine import REGISTRY
 from mathkids.mastery import is_retained
+from mathkids.scheduler import MAX_ACTIVE_LANES
 
 REVIEW_NIGHTS = 4       # a due review waiting this many practice nights
 NEW_SKILL_NIGHTS = 10   # practice nights without a new skill while some are locked
@@ -61,8 +62,17 @@ async def kid_health(dbx, kid_id: int, sequence: list[str], today: int) -> list[
                 r["score"], r["level"], REGISTRY[sid].max_level, r["mastered_at"],
                 answers.get(sid, []))]
             why = (f": {len(busy)} skills are in progress, the most at once, so the next "
-                   "arrives when one is mastered" if len(busy) >= 3 else "")
+                   "arrives when one is mastered" if len(busy) >= MAX_ACTIVE_LANES else "")
             warnings.append(f"No new skill in {since} practice nights{why}.")
+
+    last = await dbx.first(
+        """SELECT s.day, s.answered, l.used FROM session s
+           LEFT JOIN learning_session l ON l.session_id = s.id
+           WHERE s.kid_id = ? ORDER BY s.id DESC LIMIT 1""", kid_id)
+    if last and last["day"] < today and not last["answered"] and not last["used"]:
+        opened = date.fromordinal(last["day"])
+        warnings.append(f"A set was opened on {opened:%A, %B} {opened.day} and left without "
+                        "an answer, and no set has been finished since.")
 
     recent = sessions[-5:]
     sizes = [s["used"] if s["used"] is not None else len(json.loads(s["plan"])) for s in recent]

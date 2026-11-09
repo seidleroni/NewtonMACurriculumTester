@@ -1,8 +1,9 @@
 # STATUS — what's built, what isn't, and the pathways forward
 
-Living status doc. Pairs with [`DESIGN.md`](DESIGN.md) (the full spec). Last updated 2026-07-18.
+Living status doc. Pairs with [`DESIGN.md`](DESIGN.md) (the full spec) and
+[`LEARNING.md`](LEARNING.md) (teaching mode). Last updated 2026-11-09.
 
-Quick health: `uv run pytest` → **1004 passing**, `uv run ruff check` clean. **80 math skills**
+Quick health: `uv run pytest` → **1211 passing**, `uv run ruff check` clean. **80 math skills**
 across Grades 2–4 (26 / 25 / 29) — the complete catalog. Every skill is structurally verified
 by a property test and its math was independently re-solved by an adversarial audit (0 wrong
 answers found); the Phase-3 shape cards were additionally verified geometrically (side lengths,
@@ -20,6 +21,7 @@ angles, parallelism recomputed from the raw vertices).
 | **3** | Fallbacks for open-reasoning / hands-on skills (multiple-choice reframes) | ✅ done (all 7 deferred standards covered as MC/image; no parent-scored queue needed) |
 | **4** | **Literacy** (and other subjects) on the same engine | ⛔ not started |
 | — | **Web deployment** (Cloudflare Workers + D1 + Access) | ✅ done — live at mathkids.seidmann.workers.dev since 2026-07-18 (see README "Production") |
+| — | **Teaching mode** for multi-digit arithmetic (step-by-step lessons, parent history) | ✅ live since 2026-09-10; reworked October and November 2026 (see LEARNING.md) |
 | later | Richer gamified UI, printables | ⛔ not started |
 
 > Subjects beyond math are **all Phase 4+**. The engine is subject-agnostic — a `Skill` doesn't
@@ -43,10 +45,11 @@ generator, a lesson card, escalating hints, and a per-problem worked example.
 **Answer types** (`src/mathkids/answers.py`): integer, fraction (reduced/unreduced/mixed),
 comparator (`<,=,>`), decimal (`0.7==0.70`), word (with synonyms), ordered sequence, unordered
 set, time (`H:MM`), money (`$/¢`, bare whole numbers accepted as dollars), quotient+remainder,
-multiple choice (radio buttons; typing the letter or the option text both grade).
+multiple choice (radio buttons; typing the letter or the option text both grade). Sequence and
+set answers remain in the code, but no skill uses them: every question takes one answer.
 
-**Image skills (Phases 2–3)** render deterministically in `src/mathkids/assets.py` and embed as
-inline PNG data-URIs (no asset files, no extra routes). Kinds: `clock`, `number_line`,
+**Image skills (Phases 2–3)** are client-side SVG: the generator puts a JSON spec in
+`payload["image"]` and `public/static/images.js` draws it in the browser. Kinds: `clock`, `number_line`,
 `fraction_number_line`, `array`, `grid`, `fraction_bar`, `bar_graph`, plus the Phase-3 kinds
 `figure` (points/segments/rays/lines/angle types/line pairs, for 4.G.A.1), `polygon` (marked
 triangles & quadrilaterals with side ticks and right-angle squares, for 4.G.A.2), and
@@ -60,15 +63,22 @@ typed degrees). Hands-on halves (actually using a tool, sketching angles) stay f
 activities by design — no parent-scored task queue was needed.
 
 **App / loop / data:** `app.py` (FastAPI daily loop + dashboards), `mastery.py`,
-`scheduler.py`, `db.py` (SQLite). New kids are seeded with their first 2 grade skills; the rest
-unlock as they progress. A **placement probe** (ace the first 2 attempts on a new skill → start
-at level 2) keeps already-known skills from being a grind, **within-session adaptivity**
-rewrites the rest of today's plan when a level changes mid-session, an unfinished same-day
-session is **resumed** (not discarded) by the Start button, and completing a session writes a
-once-daily **DB backup** to `backups/`. Finishing the day's set lands on a **celebration
-screen**: confetti, an accuracy-tiered headline (always positive — finishing is the win), a
-counting-up score, a 🏅 banner for any skill mastered today, and a 🏆 banner when the kid's
-all-time solved count crosses a century — only-up signals, per the no-streaks rule.
+`scheduler.py`, `db.py` (the same async helpers over local SQLite or Cloudflare D1). New kids
+are seeded with their first 2 grade skills; the rest unlock one per set, paced per Common Core
+domain (DESIGN.md §7.2). A **placement probe** (ace the first 4 attempts on a new skill → level
+2) keeps already-known skills from being a grind, **within-session adaptivity** rewrites the
+rest of today's plan when a level changes mid-session, and an unfinished same-day session is
+**resumed** (not discarded) by the Start button. Finishing the day's set lands on a
+**celebration screen**: confetti, an accuracy-tiered headline (always positive — finishing is
+the win), a counting-up score, a 🏅 banner for any skill mastered today, and a 🏆 banner when
+the kid's all-time solved count crosses a century — only-up signals, per the no-streaks rule.
+Production backups are taken by hand with `tools/snapshot_d1.py` (see CLAUDE.md).
+
+**Teaching mode** (`learning.py`, `teaching.py`, `word_learning.py`; on in production) teaches
+2.OA.A.1, 2.NBT.B.5–7, 3.NBT.A.2 and 4.NBT.B.4 step by step: a missed problem and its retry
+open a short lesson on the missing ingredient, with support fading as the child succeeds. The
+parent view shows every question and answer by day, a health line, and common mistake
+patterns. `tools/simulate_teaching.py` replays future nights on a production snapshot.
 
 ---
 
@@ -84,8 +94,10 @@ we assess the readable/typed/choosable half instead:
   by drawing them (4.G.A.3). Freehand/physical production is a family activity by design.
 
 ### Engine / product features not built yet
-- **Re-opening a lesson from the dashboard**: not built (the lesson card shows once, on
-  introduction).
+- **Re-opening a lesson from the dashboard**: not built. An ordinary skill's lesson card shows
+  once, on introduction; teaching-mode skills reopen their lessons on their own after misses.
+- **Teaching for other topics**: fractions, measurement and the rest use the ordinary
+  question flow (lesson card, hints, worked example after a miss).
 - **Other grades**: only Grades 2–4 math. Grade 1 / Grade 5+ are not authored (engine supports them).
 - **Subjects beyond math** (literacy, etc.): not started — Phase 4.
 
@@ -99,8 +111,10 @@ we assess the readable/typed/choosable half instead:
   verifies it automatically; run `uv run pytest`.
 - **Add an answer type:** add a class to `answers.py` (implement `grade` + `canonical`), register
   it in `ANSWER_TYPES`, and add cases to `tests/test_answers.py`.
-- **Add an image kind:** add a renderer to `assets.py` `_RENDERERS`, then reference it from a
-  skill's `payload["image"]`. Add a case to `tests/test_assets.py`.
+- **Add an image kind:** add a renderer to `public/static/images.js`, then put its JSON spec in
+  a skill's `payload["image"]`.
+- **Change the scheduler or teaching:** run `tools/simulate_teaching.py` on a fresh snapshot
+  before deploying (LEARNING.md "Checking a change against real data").
 - **Add a subject (e.g. literacy):** the engine, mastery, scheduler, dashboards, and DB are
   subject-agnostic. Author new skill modules with new ids and a new `SEQUENCES` grade/track; the
   daily loop and progress views work unchanged.

@@ -351,7 +351,8 @@ def test_simulated_nights_keep_reviews_answers_and_lessons_in_balance(tmp_path, 
                                    start=date.fromordinal(db.today_ordinal() + 1))
         assert not broken, broken
         assert all(r.responses >= 8 for r in records)
-        assert all(r.reviews for r in records)
+        assert all(r.reviews for r in records if r.backlog)  # whenever any were due
+        assert any(r.new_skills for r in records)
 
 
 # --- lanes ------------------------------------------------------------------------
@@ -370,8 +371,81 @@ def test_a_stuck_lane_does_not_block_other_domains():
     assert next_to_introduce(slots, seq, domains=domains) is None
     slots = lane_slots(N1=1, F1=2)
     assert next_to_introduce(slots, seq, domains=domains) == "M1"
-    slots = lane_slots(N1=2, F1=2, M1=2)  # the global cap still holds
+    slots = lane_slots(N1=2, F1=2, M1=2)  # lanes, not a global 3, pace new skills now
+    assert next_to_introduce(slots, seq, domains=domains) == "N2"
+    assert next_to_introduce(slots, seq, max_active_unmastered=3, domains=domains) is None
+
+
+def test_lanes_have_a_global_safety_ceiling():
+    from mathkids.scheduler import MAX_ACTIVE_LANES
+
+    seq = [f"{lane}{i}" for lane in "ABCDE" for i in (1, 2, 3)]
+    domains = {s: s[0] for s in seq}
+    below = lane_slots(A1=2, A2=2, B1=2, B2=2, C1=2)
+    assert len(below) == MAX_ACTIVE_LANES - 1
+    assert next_to_introduce(below, seq, domains=domains) == "D1"
+    full = dict(below, D1=Slot("D1", 2, 0.5, 2, 999, False, 5))
+    assert next_to_introduce(full, seq, domains=domains) is None
+    full["A1"].mastered = True  # mastering one frees a place
+    assert next_to_introduce(full, seq, domains=domains) == "E1"
+
+
+def test_a_lane_over_its_limit_stays_closed():
+    # Jacob in November: three 2.NBT skills in play under the old rule, all off the floor.
+    seq = ["N1", "N2", "N3", "N4", "O1", "O2"]
+    domains = {"N1": "nbt", "N2": "nbt", "N3": "nbt", "N4": "nbt", "O1": "oa", "O2": "oa"}
+    slots = lane_slots(N1=4, N2=3, N3=2)
+    assert next_to_introduce(slots, seq, domains=domains) == "O1"
+    slots = lane_slots(N1=4, N2=3, N3=2, O1=9, O2=2)
+    assert next_to_introduce(slots, seq, domains=domains) is None  # N4 waits
+    slots = lane_slots(N1=9, N2=3, N3=2, O1=9, O2=2)  # one mastered: still 2 in the lane
     assert next_to_introduce(slots, seq, domains=domains) is None
+    slots = lane_slots(N1=9, N2=9, N3=2, O1=9, O2=2)
+    assert next_to_introduce(slots, seq, domains=domains) == "N4"
+
+
+def _problems(items, seeds):
+    from mathkids.app import regenerate
+
+    return [(p.prompt, json.dumps(p.payload.get("image"), sort_keys=True))
+            for p in (regenerate(dict(skill=s, level=lv, seed=seed))
+                      for (s, lv), seed in zip(items, seeds))]
+
+
+@pytest.mark.parametrize("skill,pool", [("4.NF.A.1", 2), ("4.MD.A.1", 4), ("2.G.A.1", 2)])
+def test_a_set_repeats_a_problem_only_when_the_skill_has_too_few(skill, pool):
+    from mathkids.app import fresh_seeds
+
+    items = [(skill, 1)] * 6
+    seeds = fresh_seeds(items, random.Random(3))
+    assert len(seeds) == 6  # the slot is kept even when a repeat cannot be avoided
+    assert len(set(_problems(items, seeds))) == pool
+
+
+def test_a_set_never_repeats_a_problem_from_a_large_pool():
+    from mathkids.app import fresh_seeds
+
+    items = [("4.NBT.B.4", 1)] * 8 + [("2.MD.C.7", 1)] * 6  # clocks share one prompt
+    for seed in range(20):
+        problems = _problems(items, fresh_seeds(items, random.Random(seed)))
+        assert len(set(problems)) == len(items)
+
+
+def test_a_skill_on_its_floor_gets_room_to_leave_it():
+    seq = ["F", "R1", "R2", "R3", "R4", "R5", "N1", "N2"]
+    slots = {s: slot(s, 200, mastered=True) for s in seq[1:6]}
+    slots["F"] = Slot("F", 3, 0.6, 3, 200, False, 30)  # the long-standing focus skill
+    slots["N1"] = Slot("N1", 1, 0.0, 1, 100, False, 0)  # introduced today
+    plan = compose_session(slots, seq, 100, 12)
+    assert len(plan) == 12 and plan.count("N1") >= 3 and plan.count("F") >= 2
+    for s in seq[1:6]:  # five reviews due: they still come first, in the review block
+        slots[s].due_at = 90
+    slots["N2"] = Slot("N2", 1, 0.2, 2, 101, False, 2)
+    reviews, rest = compose_blocks(slots, seq, 100, 12)
+    plan = reviews + rest
+    assert reviews == ["R1", "R2", "R3", "R4"]
+    assert len(plan) == 12 and plan.count("F") >= 2
+    assert plan.count("N1") >= 2 and plan.count("N2") >= 2
 
 
 def test_cross_lane_prerequisites_wait_for_their_skill():
@@ -473,6 +547,30 @@ def test_health_names_a_stall_and_is_quiet_when_well(app_db):
     run(d.run("DELETE FROM session"))
     run(d.run("UPDATE skill_state SET due_at=?", today + 3))
     assert run(health.kid_health(d, 1, seq, today)) == []
+
+
+def test_health_names_a_set_left_without_an_answer(app_db):
+    # Jacob, November 1: a set opened and left (answered 0, never ended), nothing since.
+    from mathkids import health
+
+    _, d = app_db
+    today = db.today_ordinal()
+    seq = ["4.OA.A.3.a"]
+
+    def add_session(day, answered, ended):
+        run(d.run("INSERT INTO session (kid_id,plan,day,started_at,ended_at,answered) "
+                  "VALUES (1,'[]',?,'t',?,?)", day, "t" if ended else None, answered))
+
+    add_session(today - 11, 12, True)
+    add_session(today - 8, 0, False)
+    opened = date.fromordinal(today - 8)
+    text = " ".join(run(health.kid_health(d, 1, seq, today)))
+    assert f"A set was opened on {opened:%A, %B} {opened.day} and left without an answer" in text
+    run(d.run("UPDATE session SET ended_at='t' WHERE answered=0"))  # closed by the next start
+    add_session(today - 1, 12, True)  # ...which was finished
+    assert not any("left without" in w for w in run(health.kid_health(d, 1, seq, today)))
+    add_session(today, 0, False)  # opened just now: not yet left
+    assert not any("left without" in w for w in run(health.kid_health(d, 1, seq, today)))
 
 
 def test_history_explains_choices_and_lists_what_was_not_reached(app_db):

@@ -116,18 +116,68 @@ his state restored to October 21 with `backups/ignore-samuel-20261022.sql`, rehe
 a snapshot first. A full export taken just before is kept locally as
 `backups/mathkids-predeploy-20261023.sql`.
 
+### November 2026: new skills arrive again
+
+The November 9 snapshot showed both children stalled on new skills: Jacob had had none
+since June 15, and Samuel's next was due to stop. Each had three unmastered skills, and
+the global cap of 3 returned before the per-domain lanes were consulted, so clocks, money,
+shapes and fractions waited behind year-end subtraction. Samuel's 4.NBT.B.4 also jumped from
+3-digit addition without carrying straight to 4-digit addition with several carries. His
+first three answers at that level were all carrying errors.
+
+- **Lanes pace new skills.** With lanes, the global cap is a safety ceiling of 6 unmastered
+  skills. Two per domain and two on their entry level at once remain the pacing rules, and
+  a lane over its limit stays closed until it drops below. Over 16 simulated nights with no
+  ceiling, 8 to 9 skills ended up in play, and on a given night 26-41% of them got no
+  question. At 6 that fell to 13-22%. Once 6 are in play, the next skill waits for one to be
+  mastered.
+- **Room to leave the floor.** Each skill still on its entry level gets 3 questions per set
+  (counting a due review), taken from the focus skill's 5. The focus skill keeps at least 2.
+  Four clean first answers lift a new skill off its floor, so this takes about two sets
+  instead of one leftover question a night. Reviews still come first.
+- **No repeats in a set.** When a set is planned, a slot whose problem (prompt and figure)
+  is already in the set gets a new seed, up to 20 tries. A skill with fewer problems than
+  slots (2.G.A.1 level 1 has two) still repeats rather than losing the slot.
+- **4.NBT.B.4 has 7 levels.** Two rungs with exactly one carry come between the no-carry floor
+  and 4-digit carrying. The old levels 2-5 keep their problems as levels 4-7.
+
+  | Level | Problems | Band | Ingredients added |
+  | --- | --- | --- | --- |
+  | 1 | 3-digit add, no carry | 3 | decompose, match, add_parts |
+  | 2 | 3-digit add, one carry (ones or tens) | 3 | add_ones, add_tens |
+  | 3 | 4-digit add, one carry, 4-digit sum | 4 | — |
+  | 4 | 4-digit add with carries (ones always) | 4 | add_multi |
+  | 5 | 4-digit subtract, no borrow | 4 | sub_parts |
+  | 6 | 5-digit subtract with borrowing | 5 | sub_ones, sub_tens, sub_multi, sub_zero |
+  | 7 | add or subtract to 1,000,000 | 6 | — |
+
+  Regrouping in more than one place is first required at level 4, the first level that can
+  carry twice. Stored skill levels were not changed: Samuel's level 2 now means the 3-digit,
+  one-carry step. His five answers of November 4 and 8 were stored as level 2 but were the
+  old 4-digit problems. `backups/relabel-samuel-4nbtb4-20261109.sql` (rehearsed on the
+  snapshot, not applied) relabels them, and their whole-problem learning state, to level 4.
+  Without it, those misses would open a lesson on addition without carrying.
+- **Parent view.** A new health line flags a set that was opened and left without an answer
+  when no set has been finished since. The grade 4 place-value questions now ask "how much is
+  the 9 worth", not "what is the value of the 9"; the decomposition lessons' explanations
+  and feedback use the same words.
+
 ### Checking a change against real data
 
 ```powershell
 uv run python -m tools.snapshot_d1                    # copy production D1 -> backups/
 uv run python -m tools.simulate_teaching backups/d1-snapshot-YYYYMMDD.db --nights 8 --slip 0.1
 uv run python -m tools.simulate_teaching backups/d1-snapshot-YYYYMMDD.db --nights 1 --show
+uv run python -m tools.simulate_teaching backups/d1-snapshot-YYYYMMDD.db --weekdays 2,6 --slip 0.1
 uv run python -m tools.prompt_report backups/d1-snapshot-YYYYMMDD.db
 ```
 
 The simulator drives the real routes on a copy and checks the invariants the September
 rollout broke (most overdue review served, sets of at least 8 answers, an unaided answer
-for every skill being taught). `tools/rebuild_state.py` proposes guarded `skill_state`
+for every skill being taught). Nights default to Monday-Thursday; `--weekdays 2,6`
+(Wednesday and Sunday) matches the children's usual two sets a week, and `--every N`
+spaces nights evenly. Each night also shows the review backlog ("gate" when it held back
+a new skill) and how many unmastered skills are in play. `tools/rebuild_state.py` proposes guarded `skill_state`
 corrections for skills whose most recent answers were blank; review its SQL before
 applying it with `npx wrangler d1 execute mathkids --remote --file ...`.
 
